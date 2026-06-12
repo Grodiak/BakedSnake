@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Baked Snake Prototype</title>
+    <link rel="stylesheet" href="./styles.css?v=snake-head-v1">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="game-wrap" aria-label="Baked Snake prototype">
+        <div class="hud" aria-live="polite">
+          <div>
+            <span class="label">Score</span>
+            <strong id="score">0</strong>
+          </div>
+          <div>
+            <span class="label">Highscore</span>
+            <strong id="best">0</strong>
+          </div>
+          <div class="level-panel">
+            <span class="label">Current Level</span>
+            <strong id="level">1</strong>
+            <div class="level-progress" aria-label="Level 1 progress">
+              <span id="levelProgress"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="play-area">
+          <canvas id="game" width="1290" height="600"></canvas>
+        </div>
+
+        <div class="snake-cutout snake-cutout-normal" aria-hidden="true"></div>
+        <div class="snake-cutout snake-cutout-influenced" aria-hidden="true"></div>
+
+        <div class="death-overlay hidden" id="deathOverlay" aria-live="polite">
+          <div class="death-panel">
+            <span class="death-kicker">Run Cooked</span>
+            <strong class="death-score" id="deathScore">0</strong>
+            <div class="death-stats">
+              <span>High Score</span>
+              <strong id="deathBest">0</strong>
+            </div>
+            <button id="restartButton" type="button">Play Again</button>
+            <p>Press Space or tap Play Again</p>
+          </div>
+        </div>
+
+        <div class="overlay title-screen" id="overlay">
+          <div class="title-art">
+            <div class="title-neon-pulse" aria-hidden="true"></div>
+            <div class="title-logo-pulse" aria-hidden="true"></div>
+            <div class="coin-cover" aria-hidden="true"></div>
+            <strong class="title-best" id="titleBest">0</strong>
+            <div class="panel">
+              <h1>Baked Snake</h1>
+              <p id="overlayText"></p>
+              <button id="startButton" type="button">Press Start</button>
+              <div class="music-menu" aria-label="Music">
+                <span class="menu-label">Music</span>
+                <button class="music-choice music-choice-on active" id="musicOnButton" type="button" aria-pressed="true">ON</button>
+                <span class="menu-slash" aria-hidden="true">/</span>
+                <button class="music-choice music-choice-off" id="musicOffButton" type="button" aria-pressed="false">OFF</button>
+              </div>
+              <div class="sound-menu" aria-label="Sound effects">
+                <span class="menu-label">Sound FX</span>
+                <button class="sound-choice sound-choice-on active" id="soundOnButton" type="button" aria-pressed="true">ON</button>
+                <span class="menu-slash" aria-hidden="true">/</span>
+                <button class="sound-choice sound-choice-off" id="soundOffButton" type="button" aria-pressed="false">OFF</button>
+              </div>
+              <p class="hint">Turn with A/D or arrow keys. Space starts or restarts. On touch screens, hold left or right.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="./game.js?v=snake-head-v1"></script>
+  </body>
+</html>
