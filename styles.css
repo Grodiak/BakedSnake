@@ -43,6 +43,8 @@ canvas {
 .game-wrap {
   --influence-glow: 0;
   --snake-state: 0;
+  --slowmo-focus: 0;
+  --active-bg: url("./assets/baked-snake-bg-v3.png");
   position: relative;
   width: min(calc(100vw + 32px), calc((100vh - 8px) * 2.1112));
   aspect-ratio: 1822 / 863;
@@ -50,8 +52,12 @@ canvas {
   border: 0;
   border-radius: 0;
   overflow: hidden;
-  background: url("./assets/baked-snake-bg-v3.png") center / 100% 100% no-repeat;
+  background: var(--active-bg) center / 100% 100% no-repeat;
   box-shadow: 0 20px 80px rgba(0, 0, 0, 0.58);
+}
+
+.game-wrap.background-b {
+  --active-bg: url("./assets/baked-snake-bg-v3b.png");
 }
 
 .game-wrap::before {
@@ -60,31 +66,31 @@ canvas {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: url("./assets/baked-snake-bg-v3.png") center / 100% 100% no-repeat;
+  background: var(--active-bg) center / 100% 100% no-repeat;
   mix-blend-mode: screen;
   opacity: 0;
   filter:
-    brightness(calc(1.1 + var(--influence-glow) * 1.7))
-    saturate(calc(1.1 + var(--influence-glow) * 1.6));
-  animation: neonInfluencePulse calc(1.5s - var(--influence-glow) * 0.45s) ease-in-out infinite;
+    brightness(calc(1.1 + var(--influence-glow) * 1.7 + var(--slowmo-focus) * 0.85))
+    saturate(calc(1.1 + var(--influence-glow) * 1.6 + var(--slowmo-focus) * 1.1));
+  animation: neonInfluencePulse calc(1.5s - var(--influence-glow) * 0.45s - var(--slowmo-focus) * 0.42s) ease-in-out infinite;
 }
 
 @keyframes neonInfluencePulse {
   0%,
   100% {
-    opacity: calc(var(--influence-glow) * 0.16);
+    opacity: calc(var(--influence-glow) * 0.16 + var(--slowmo-focus) * 0.12);
     transform: scale(1);
     filter:
-      brightness(calc(1.05 + var(--influence-glow) * 1.35))
-      saturate(calc(1.05 + var(--influence-glow) * 1.25));
+      brightness(calc(1.05 + var(--influence-glow) * 1.35 + var(--slowmo-focus) * 0.75))
+      saturate(calc(1.05 + var(--influence-glow) * 1.25 + var(--slowmo-focus) * 0.9));
   }
 
   50% {
-    opacity: calc(var(--influence-glow) * 0.72);
+    opacity: calc(var(--influence-glow) * 0.72 + var(--slowmo-focus) * 0.5);
     transform: scale(1.006);
     filter:
-      brightness(calc(1.2 + var(--influence-glow) * 2.15))
-      saturate(calc(1.15 + var(--influence-glow) * 1.85));
+      brightness(calc(1.2 + var(--influence-glow) * 2.15 + var(--slowmo-focus) * 1.45))
+      saturate(calc(1.15 + var(--influence-glow) * 1.85 + var(--slowmo-focus) * 1.45));
   }
 }
 
@@ -92,17 +98,35 @@ canvas {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 3;
   pointer-events: none;
-  background: url("./assets/baked-snake-bg-v3b.png") center / 100% 100% no-repeat;
-  clip-path: polygon(4.8% 26%, 16.2% 26%, 16.2% 58%, 4.8% 58%);
-  -webkit-mask-image: radial-gradient(ellipse 6.6% 16% at 10.5% 39.5%, #000 0 46%, rgba(0, 0, 0, 0.68) 58%, transparent 78%);
-  mask-image: radial-gradient(ellipse 6.6% 16% at 10.5% 39.5%, #000 0 46%, rgba(0, 0, 0, 0.68) 58%, transparent 78%);
-  opacity: var(--snake-state);
-  filter:
-    brightness(calc(1 + var(--snake-state) * 0.2))
-    saturate(calc(1 + var(--snake-state) * 0.35));
-  transition: opacity 420ms ease;
+  opacity: calc(var(--slowmo-focus) * 0.92);
+  background:
+    radial-gradient(ellipse 49% 44% at 50% 55%,
+      transparent 0 70%,
+      rgba(62, 244, 255, 0.08) 82%,
+      rgba(255, 54, 222, 0.18) 100%);
+  backdrop-filter:
+    blur(calc(var(--slowmo-focus) * 10px))
+    saturate(calc(1 + var(--slowmo-focus) * 1.35))
+    hue-rotate(calc(var(--slowmo-focus) * 12deg));
+  -webkit-backdrop-filter:
+    blur(calc(var(--slowmo-focus) * 10px))
+    saturate(calc(1 + var(--slowmo-focus) * 1.35))
+    hue-rotate(calc(var(--slowmo-focus) * 12deg));
+  -webkit-mask:
+    radial-gradient(ellipse 48% 43% at 50% 55%,
+      transparent 0 69%,
+      rgba(0, 0, 0, 0.12) 76%,
+      rgba(0, 0, 0, 0.7) 89%,
+      #000 100%);
+  mask:
+    radial-gradient(ellipse 48% 43% at 50% 55%,
+      transparent 0 69%,
+      rgba(0, 0, 0, 0.12) 76%,
+      rgba(0, 0, 0, 0.7) 89%,
+      #000 100%);
+  transition: opacity 130ms ease-out;
 }
 
 .play-area {
@@ -123,20 +147,23 @@ canvas {
   inset: 0;
   z-index: 3;
   pointer-events: none;
-  background: url("./assets/snake-foreground-v3.png?v=trimmed-rail") center / 100% 100% no-repeat;
+  background: url("./assets/snake-foreground-v3.png?v=precise-overlap-v2") center / 100% 100% no-repeat;
   filter:
     drop-shadow(0 0 4px rgba(66, 255, 104, 0.18))
     drop-shadow(0 0 10px rgba(255, 53, 151, 0.12));
 }
 
+.snake-cutout-normal {
+  opacity: calc(1 - var(--snake-state));
+}
+
 .snake-cutout-influenced {
-  background-image: url("./assets/snake-foreground-v3b.png?v=trimmed-rail");
+  background-image: url("./assets/snake-foreground-v3b.png?v=precise-overlap-v2");
   opacity: var(--snake-state);
   filter:
-    brightness(calc(1 + var(--snake-state) * 0.2))
-    saturate(calc(1 + var(--snake-state) * 0.35))
-    drop-shadow(0 0 6px rgba(255, 72, 220, 0.2));
-  transition: opacity 420ms ease;
+    brightness(calc(1 + var(--snake-state) * 0.14))
+    saturate(calc(1 + var(--snake-state) * 0.22))
+    drop-shadow(0 0 6px rgba(255, 72, 220, 0.14));
 }
 
 #game {

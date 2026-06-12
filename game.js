@@ -1,8 +1,13 @@
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
 
-const snakeHeadImage = new Image();
-let snakeHeadSprite = null;
+const snakeHeadSprites = {
+  closed: null,
+  littleOpen: null,
+  open: null,
+};
+const snakeBodyImage = new Image();
+let snakeBodySprite = null;
 
 const gameWrap = document.querySelector(".game-wrap");
 const scoreEl = document.querySelector("#score");
@@ -28,7 +33,14 @@ const SCORE_SCALE = 100;
 const LEVEL_ONE_TARGET = 1000;
 const MUSIC_LOOP_START = 51;
 const MUSIC_VOLUME = 0.42;
+const MUSIC_NORMAL_RATE = 1;
+const MUSIC_SLOWMO_RATE = 0.8;
+const MUSIC_NORMAL_CUTOFF = 18000;
+const MUSIC_SLOWMO_CUTOFF = 680;
 const DEBUG_DEATH = new URLSearchParams(window.location.search).has("debugDeath");
+const DEBUG_BACKGROUND_B = new URLSearchParams(window.location.search).has("debugBgB");
+const DEBUG_MOUTH = new URLSearchParams(window.location.search).get("debugMouth");
+const DEBUG_SLOWMO = new URLSearchParams(window.location.search).has("debugSlowMo");
 const X_ITEM_UNLOCK = {
   score: 180,
   length: 340,
@@ -38,7 +50,13 @@ const HELP_COLOR = "#42cafd";
 const HARM_COLOR = "#ef4d5a";
 const X_HELP_COLOR = "#9df7ff";
 const X_HARM_COLOR = "#ff2a8a";
-const HEAD_SPRITE_SIZE = 84;
+const HEAD_SPRITE_SIZE = 68;
+const BODY_TEXTURE_WIDTH = 24;
+const BODY_TEXTURE_LENGTH = 46;
+const BODY_TEXTURE_STEP = 13;
+const BODY_TEXTURE_WRAP_INSET = 8;
+const MOUTH_PREP_DISTANCE = 96;
+const MOUTH_BITE_TIME = 0.18;
 const SPAWN_DELAY = { min: 0.85, max: 1.75 };
 const SNAP_MODE_THRESHOLD = 0.08;
 const SNAP_TURN = Math.PI / 4;
@@ -50,10 +68,22 @@ const EFFECT_DECAY = {
   snap: 0.08,
 };
 
-snakeHeadImage.addEventListener("load", () => {
-  snakeHeadSprite = buildSnakeHeadSprite(snakeHeadImage);
+loadHeadSprite("closed", "./assets/snake-head-closed-v21-source.png?v=mouth-cycle-v1");
+loadHeadSprite("littleOpen", "./assets/snake-head-little-open-v2-source.png?v=mouth-cycle-v1");
+loadHeadSprite("open", "./assets/snake-head-open-v2-source.png?v=mouth-cycle-v1");
+
+snakeBodyImage.addEventListener("load", () => {
+  snakeBodySprite = buildSnakeBodySprite(snakeBodyImage);
 });
-snakeHeadImage.src = "./assets/snake-head-v1-source.png?v=snake-head-v1";
+snakeBodyImage.src = "./assets/snake-body-sheet.png?v=body-texture-v1";
+
+function loadHeadSprite(key, src) {
+  const image = new Image();
+  image.addEventListener("load", () => {
+    snakeHeadSprites[key] = buildSnakeHeadSprite(image);
+  });
+  image.src = src;
+}
 
 const music = new Audio("./assets/audio/coin-clash.mp3");
 music.id = "backgroundMusic";
@@ -70,6 +100,9 @@ let musicStatus = "waiting";
 let musicNeedsCue = false;
 let musicEnabled = true;
 let soundEnabled = true;
+let audioContext = null;
+let musicFilter = null;
+let musicAudioSource = null;
 
 function updateMusicMenu() {
   musicOnButton.classList.toggle("active", musicEnabled);
@@ -104,8 +137,12 @@ function confirmMusicCue() {
 }
 
 function playMusic() {
+  ensureMusicEffects();
   musicStatus = music.muted ? "starting-muted" : "starting";
   music.play().then(() => {
+    if (audioContext?.state === "suspended") {
+      audioContext.resume();
+    }
     confirmMusicCue();
     musicStatus = music.muted ? "playing-muted" : "playing";
   }).catch((error) => {
@@ -142,6 +179,7 @@ function startMusic() {
 
   music.muted = false;
   music.volume = MUSIC_VOLUME;
+  ensureMusicEffects();
 
   if (music.paused) {
     playMusic();
@@ -168,6 +206,32 @@ function setMusicEnabled(enabled) {
 function setSoundEnabled(enabled) {
   soundEnabled = enabled;
   updateSoundMenu();
+}
+
+function ensureMusicEffects() {
+  if (musicFilter || (!window.AudioContext && !window.webkitAudioContext)) return;
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  audioContext = new AudioContextClass();
+  musicAudioSource = audioContext.createMediaElementSource(music);
+  musicFilter = audioContext.createBiquadFilter();
+  musicFilter.type = "lowpass";
+  musicFilter.frequency.value = MUSIC_NORMAL_CUTOFF;
+  musicFilter.Q.value = 0.2;
+  musicAudioSource.connect(musicFilter);
+  musicFilter.connect(audioContext.destination);
+}
+
+function updateSlowMoAudio(slowMoFocus) {
+  const targetRate = slowMoFocus > 0 ? MUSIC_SLOWMO_RATE : MUSIC_NORMAL_RATE;
+  music.playbackRate += (targetRate - music.playbackRate) * 0.18;
+
+  if (!musicFilter || !audioContext) return;
+
+  const cutoff = MUSIC_NORMAL_CUTOFF + (MUSIC_SLOWMO_CUTOFF - MUSIC_NORMAL_CUTOFF) * slowMoFocus;
+  const q = 0.2 + slowMoFocus * 1.15;
+  musicFilter.frequency.setTargetAtTime(cutoff, audioContext.currentTime, 0.055);
+  musicFilter.Q.setTargetAtTime(q, audioContext.currentTime, 0.055);
 }
 
 music.addEventListener("ended", () => {
@@ -208,6 +272,15 @@ window.bakedSnakeAudioState = () => ({
   muted: music.muted,
   enabled: musicEnabled,
   volume: music.volume,
+  playbackRate: music.playbackRate,
+  filterFrequency: musicFilter?.frequency.value || null,
+  filterQ: musicFilter?.Q.value || null,
+});
+
+window.bakedSnakeDebugState = () => ({
+  head: state?.head || null,
+  mouthOpen: state?.mouthOpen || 0,
+  backgroundBActive: state?.backgroundBActive || false,
 });
 
 const itemTypes = [
@@ -274,6 +347,7 @@ const itemTypes = [
       fullCleanse(s);
       s.length = Math.max(180, s.length * 0.58);
       s.slowMo = 8.5;
+      s.selfHitGrace = 0.9;
       s.screenPulse = 1.25;
     },
   },
@@ -379,7 +453,8 @@ function newState() {
       snap: 0,
     },
     time: 0,
-    slowMo: 0,
+    slowMo: DEBUG_SLOWMO ? 8.5 : 0,
+    selfHitGrace: 0,
     influenceMemory: 0,
     combo: {
       itemId: null,
@@ -387,6 +462,9 @@ function newState() {
     },
     spawnDelay: 0.7,
     alive: true,
+    backgroundBActive: false,
+    mouthOpen: 0,
+    mouthBiteTimer: 0,
     screenPulse: 0,
   };
 }
@@ -396,6 +474,7 @@ function startGame() {
   running = true;
   lastTime = performance.now();
   updateHud();
+  updateFrameGlow();
   startMusic();
   overlay.classList.remove("game-over");
   overlay.classList.add("hidden");
@@ -406,6 +485,8 @@ function startGame() {
 function gameOver() {
   running = false;
   state.alive = false;
+  updateSlowMoAudio(0);
+  gameWrap.style.setProperty("--slowmo-focus", "0.000");
   if (state.score > best) {
     best = state.score;
     localStorage.setItem(STORAGE_KEY, String(best));
@@ -435,6 +516,7 @@ function update(dt) {
   }
   state.speedBoost = Math.max(0, state.speedBoost - 16 * dt);
   state.slowMo = Math.max(0, state.slowMo - dt);
+  state.selfHitGrace = Math.max(0, state.selfHitGrace - dt);
   state.screenPulse = Math.max(0, state.screenPulse - 2.4 * dt);
   state.influenceMemory = Math.max(currentInfluence(), moveToward(state.influenceMemory, 0, 0.11 * dt));
 
@@ -464,6 +546,7 @@ function update(dt) {
   trimTrail();
 
   collectItems();
+  updateMouth(dt);
   expireItems(dt);
   state.spawnDelay -= dt;
   if (state.items.length < targetItemCount() && state.spawnDelay <= 0) {
@@ -632,6 +715,7 @@ function drawSnake() {
   ctx.stroke();
   ctx.globalAlpha = 1;
 
+  drawTexturedBody(points);
   drawHead();
   ctx.restore();
 }
@@ -655,20 +739,88 @@ function isWrapJump(a, b) {
   return Math.abs(a.x - b.x) > WORLD.w * 0.5 || Math.abs(a.y - b.y) > WORLD.h * 0.5;
 }
 
-function buildSnakeHeadSprite(image) {
+function drawTexturedBody(points) {
+  if (!snakeBodySprite) return;
+
+  let run = [points[0]];
+
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1];
+    const current = points[i];
+    if (isWrapJump(prev, current)) {
+      drawTexturedRun(run);
+      run = [current];
+      continue;
+    }
+
+    run.push(current);
+  }
+
+  drawTexturedRun(run);
+}
+
+function drawTexturedRun(run) {
+  if (run.length < 2) return;
+
+  let runLength = 0;
+  for (let i = 1; i < run.length; i += 1) {
+    runLength += Math.hypot(run[i].x - run[i - 1].x, run[i].y - run[i - 1].y);
+  }
+  if (runLength < BODY_TEXTURE_WRAP_INSET * 2 + BODY_TEXTURE_STEP) return;
+
+  let nextStamp = BODY_TEXTURE_WRAP_INSET;
+  let traveled = 0;
+
+  for (let i = 1; i < run.length; i += 1) {
+    const prev = run[i - 1];
+    const current = run[i];
+    const dx = current.x - prev.x;
+    const dy = current.y - prev.y;
+    const segmentLength = Math.hypot(dx, dy);
+    if (segmentLength < 0.01) continue;
+
+    while (nextStamp <= traveled + segmentLength && nextStamp <= runLength - BODY_TEXTURE_WRAP_INSET) {
+      const t = (nextStamp - traveled) / segmentLength;
+      const x = prev.x + dx * t;
+      const y = prev.y + dy * t;
+      drawBodyStamp(x, y, Math.atan2(dy, dx));
+      nextStamp += BODY_TEXTURE_STEP;
+    }
+
+    traveled += segmentLength;
+  }
+}
+
+function drawBodyStamp(x, y, angle) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle + Math.PI / 2);
+  ctx.globalAlpha = 0.72;
+  ctx.drawImage(
+    snakeBodySprite,
+    -BODY_TEXTURE_WIDTH / 2,
+    -BODY_TEXTURE_LENGTH / 2,
+    BODY_TEXTURE_WIDTH,
+    BODY_TEXTURE_LENGTH,
+  );
+  ctx.restore();
+}
+
+function buildSnakeBodySprite(image) {
+  const crop = { x: 610, y: 150, w: 130, h: 330 };
   const sprite = document.createElement("canvas");
-  sprite.width = image.naturalWidth;
-  sprite.height = image.naturalHeight;
+  sprite.width = crop.w;
+  sprite.height = crop.h;
 
   const spriteCtx = sprite.getContext("2d", { willReadFrequently: true });
-  spriteCtx.drawImage(image, 0, 0);
+  spriteCtx.drawImage(image, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
 
   const pixels = spriteCtx.getImageData(0, 0, sprite.width, sprite.height);
   const data = pixels.data;
   const cx = sprite.width * 0.5;
-  const cy = sprite.height * 0.52;
-  const rx = sprite.width * 0.36;
-  const ry = sprite.height * 0.46;
+  const cy = sprite.height * 0.5;
+  const rx = sprite.width * 0.48;
+  const ry = sprite.height * 0.49;
 
   for (let i = 0; i < data.length; i += 4) {
     const pixel = i / 4;
@@ -681,13 +833,73 @@ function buildSnakeHeadSprite(image) {
     const min = Math.min(r, g, b);
     const saturation = max === 0 ? 0 : (max - min) / max;
     const ellipse = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
-    const inHeadOval = ellipse < 1.08 && y > sprite.height * 0.05 && y < sprite.height * 0.97;
-    const neonGlow = saturation > 0.18 && max > 55;
+    const vividScale = saturation > 0.16 && max > 46;
+    const inCapsule = ellipse < 1.05;
 
-    if (!inHeadOval && !neonGlow) {
+    if (!inCapsule || !vividScale) {
       data[i + 3] = 0;
-    } else if (!inHeadOval && saturation < 0.32) {
-      data[i + 3] = Math.min(data[i + 3], 70);
+    }
+  }
+
+  spriteCtx.putImageData(pixels, 0, 0);
+  return sprite;
+}
+
+function buildSnakeHeadSprite(image) {
+  const sprite = document.createElement("canvas");
+  sprite.width = image.naturalWidth;
+  sprite.height = image.naturalHeight;
+
+  const spriteCtx = sprite.getContext("2d", { willReadFrequently: true });
+  spriteCtx.drawImage(image, 0, 0);
+
+  const pixels = spriteCtx.getImageData(0, 0, sprite.width, sprite.height);
+  const data = pixels.data;
+  const { width, height } = sprite;
+  const visited = new Uint8Array(width * height);
+  const queue = [];
+
+  function isNeutralBackground(pixel) {
+    const i = pixel * 4;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const saturation = max === 0 ? 0 : (max - min) / max;
+    const channelSpread = max - min;
+    return max > 120 && saturation < 0.12 && channelSpread < 28;
+  }
+
+  function enqueue(pixel) {
+    if (visited[pixel] || !isNeutralBackground(pixel)) return;
+    visited[pixel] = 1;
+    queue.push(pixel);
+  }
+
+  for (let x = 0; x < width; x += 1) {
+    enqueue(x);
+    enqueue((height - 1) * width + x);
+  }
+
+  for (let y = 1; y < height - 1; y += 1) {
+    enqueue(y * width);
+    enqueue(y * width + width - 1);
+  }
+
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const pixel = queue[cursor];
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    if (x > 0) enqueue(pixel - 1);
+    if (x < width - 1) enqueue(pixel + 1);
+    if (y > 0) enqueue(pixel - width);
+    if (y < height - 1) enqueue(pixel + width);
+  }
+
+  for (let pixel = 0; pixel < visited.length; pixel += 1) {
+    if (visited[pixel]) {
+      data[pixel * 4 + 3] = 0;
     }
   }
 
@@ -704,13 +916,13 @@ function drawHead() {
   ctx.translate(h.x, h.y);
   ctx.rotate(a);
 
-  if (snakeHeadSprite) {
+  const headSprite = currentHeadSprite();
+  if (headSprite) {
     const headSize = HEAD_SPRITE_SIZE + faceStress * 2;
     ctx.save();
     ctx.rotate(-Math.PI / 2);
-    ctx.drawImage(snakeHeadSprite, -headSize / 2, -headSize / 2, headSize, headSize);
+    ctx.drawImage(headSprite, -headSize / 2, -headSize / 2, headSize, headSize);
     ctx.restore();
-    drawStressTongue(faceStress, headSize * 0.42);
     ctx.restore();
     return;
   }
@@ -737,6 +949,16 @@ function drawHead() {
 
   drawStressTongue(faceStress, 14);
   ctx.restore();
+}
+
+function currentHeadSprite() {
+  if (state.mouthOpen > 0.72) {
+    return snakeHeadSprites.open || snakeHeadSprites.littleOpen || snakeHeadSprites.closed;
+  }
+  if (state.mouthOpen > 0.2) {
+    return snakeHeadSprites.littleOpen || snakeHeadSprites.open || snakeHeadSprites.closed;
+  }
+  return snakeHeadSprites.closed || snakeHeadSprites.littleOpen || snakeHeadSprites.open;
 }
 
 function drawStressTongue(faceStress, startX) {
@@ -806,14 +1028,39 @@ function collectItems() {
     const item = state.items[i];
     if (wrappedDistance(state.head, item) <= item.type.radius + 15) {
       state.items.splice(i, 1);
+      state.mouthBiteTimer = MOUTH_BITE_TIME;
       const combo = comboForItem(item.type);
+      const lengthBeforeApply = state.length;
       state.score += item.type.points * SCORE_SCALE * combo;
       state.length += item.type.growth;
       state.screenPulse = isHarmItem(item.type) ? 1 : 0.55;
       item.type.apply(state);
+      if (state.length < lengthBeforeApply) {
+        trimTrail();
+      }
       state.influenceMemory = Math.max(state.influenceMemory, currentInfluence());
     }
   }
+}
+
+function updateMouth(dt) {
+  if (DEBUG_MOUTH !== null) {
+    state.mouthOpen = clamp(Number(DEBUG_MOUTH) || 0, 0, 1);
+    state.mouthBiteTimer = 0;
+    return;
+  }
+
+  state.mouthBiteTimer = Math.max(0, state.mouthBiteTimer - dt);
+
+  let nearest = Infinity;
+  for (const item of state.items) {
+    nearest = Math.min(nearest, wrappedDistance(state.head, item) - item.type.radius);
+  }
+
+  const prep = clamp(1 - nearest / MOUTH_PREP_DISTANCE, 0, 1);
+  const target = state.mouthBiteTimer > 0 ? 1 : prep * 0.55;
+  const speed = target > state.mouthOpen ? 12 : 11;
+  state.mouthOpen += (target - state.mouthOpen) * clamp(dt * speed, 0, 1);
 }
 
 function comboForItem(type) {
@@ -910,6 +1157,8 @@ function isGoodSpawn(item) {
 }
 
 function hitsSelf() {
+  if (state.selfHitGrace > 0) return false;
+
   const points = state.trail;
   const skip = 17;
   if (points.length <= skip + 6) return false;
@@ -983,9 +1232,25 @@ function currentInfluence() {
 
 function updateFrameGlow() {
   const influence = Math.max(currentInfluence(), state.influenceMemory);
-  const snakeState = clamp((chaosLevel() - 0.85) / 1.15, 0, 1);
+  const slowMoFocus = state.slowMo > 0 ? clamp(state.slowMo / 0.55, 0, 1) : 0;
+  const chaos = chaosLevel();
+  const shouldEnterBackgroundB = influence > 0.76 || chaos > 1.95;
+  const shouldExitBackgroundB = influence < 0.42 && chaos < 1.05;
+
+  if (DEBUG_BACKGROUND_B) {
+    state.backgroundBActive = true;
+  } else if (state.backgroundBActive) {
+    state.backgroundBActive = !shouldExitBackgroundB;
+  } else {
+    state.backgroundBActive = shouldEnterBackgroundB;
+  }
+
+  const snakeState = state.backgroundBActive ? 1 : 0;
   gameWrap.style.setProperty("--influence-glow", influence.toFixed(3));
   gameWrap.style.setProperty("--snake-state", snakeState.toFixed(3));
+  gameWrap.style.setProperty("--slowmo-focus", slowMoFocus.toFixed(3));
+  gameWrap.classList.toggle("background-b", state.backgroundBActive);
+  updateSlowMoAudio(slowMoFocus);
 }
 
 function targetItemCount() {
