@@ -37,6 +37,7 @@ const MUSIC_NORMAL_RATE = 1;
 const MUSIC_SLOWMO_RATE = 0.8;
 const MUSIC_NORMAL_CUTOFF = 18000;
 const MUSIC_SLOWMO_CUTOFF = 680;
+const PICKUP_SOUND_VOLUME = 0.58;
 const DEBUG_DEATH = new URLSearchParams(window.location.search).has("debugDeath");
 const DEBUG_BACKGROUND_B = new URLSearchParams(window.location.search).has("debugBgB");
 const DEBUG_MOUTH = new URLSearchParams(window.location.search).get("debugMouth");
@@ -94,6 +95,14 @@ music.volume = MUSIC_VOLUME;
 music.setAttribute("playsinline", "");
 music.dataset.loopStart = String(MUSIC_LOOP_START);
 document.body.appendChild(music);
+
+const pickupSounds = Array.from({ length: 4 }, () => {
+  const sound = new Audio("./assets/audio/gather-point-regular.wav");
+  sound.preload = "auto";
+  sound.volume = PICKUP_SOUND_VOLUME;
+  return sound;
+});
+let pickupSoundIndex = 0;
 
 let musicStarted = false;
 let musicStatus = "waiting";
@@ -206,6 +215,16 @@ function setMusicEnabled(enabled) {
 function setSoundEnabled(enabled) {
   soundEnabled = enabled;
   updateSoundMenu();
+}
+
+function playPickupSound() {
+  if (!soundEnabled) return;
+
+  const sound = pickupSounds[pickupSoundIndex];
+  pickupSoundIndex = (pickupSoundIndex + 1) % pickupSounds.length;
+  sound.volume = PICKUP_SOUND_VOLUME;
+  sound.currentTime = 0;
+  sound.play().catch(() => {});
 }
 
 function ensureMusicEffects() {
@@ -1034,6 +1053,7 @@ function collectItems() {
       state.score += item.type.points * SCORE_SCALE * combo;
       state.length += item.type.growth;
       state.screenPulse = isHarmItem(item.type) ? 1 : 0.55;
+      playPickupSound();
       item.type.apply(state);
       if (state.length < lengthBeforeApply) {
         trimTrail();
