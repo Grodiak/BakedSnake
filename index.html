@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Baked Snake Prototype</title>
-    <link rel="stylesheet" href="./styles.css?v=pickup-sfx-v1">
+    <link rel="stylesheet" href="./styles.css?v=safari-head-fallback-v1">
   </head>
   <body>
     <main class="shell">
@@ -33,6 +33,30 @@
 
         <div class="snake-cutout snake-cutout-normal" aria-hidden="true"></div>
         <div class="snake-cutout snake-cutout-influenced" aria-hidden="true"></div>
+
+        <div class="briefing-overlay hidden" id="briefingOverlay" aria-live="polite">
+          <div class="briefing-panel">
+            <span class="briefing-kicker">Before You Bake</span>
+            <div class="briefing-grid">
+              <div class="briefing-item briefing-blue">
+                <img src="./assets/item-blue1-coffee.png?v=blue1-coffee-v1" alt="">
+                <div>
+                  <strong>Blue Cleanses</strong>
+                  <p>Cuts through intoxication and helps you recover, but permanently adds speed to your snake.</p>
+                </div>
+              </div>
+              <div class="briefing-item briefing-red">
+                <img src="./assets/item-red1-gummy.png?v=red1-gummy-v4" alt="">
+                <div>
+                  <strong>Red Scores Big</strong>
+                  <p>Pays out more points, then hits the snake with intoxicating effects that make steering harder.</p>
+                </div>
+              </div>
+            </div>
+            <p class="briefing-hero"><span aria-hidden="true">!</span> Rare hero items are risky, loud, and absolutely worth grabbing <span aria-hidden="true">!</span></p>
+            <button id="briefingStartButton" type="button">Start Run</button>
+          </div>
+        </div>
 
         <div class="death-overlay hidden" id="deathOverlay" aria-live="polite">
           <div class="death-panel">
@@ -76,6 +100,6 @@
       </section>
     </main>
 
-    <script src="./game.js?v=pickup-sfx-v1"></script>
+    <script src="./game.js?v=safari-head-fallback-v1"></script>
   </body>
 </html>

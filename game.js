@@ -6,8 +6,28 @@ const snakeHeadSprites = {
   littleOpen: null,
   open: null,
 };
+const assetLoadState = {
+  body: { loaded: false, processed: false, fallback: false, error: null },
+  heads: {
+    closed: { loaded: false, processed: false, fallback: false, error: null },
+    littleOpen: { loaded: false, processed: false, fallback: false, error: null },
+    open: { loaded: false, processed: false, fallback: false, error: null },
+  },
+};
 const snakeBodyImage = new Image();
 let snakeBodySprite = null;
+const floorTileImage = new Image();
+let floorTilePattern = null;
+const itemSprites = {
+  blue1: null,
+  blue2: null,
+  blue3: null,
+  bluex: null,
+  red1: null,
+  red2: null,
+  red3: null,
+  redx: null,
+};
 
 const gameWrap = document.querySelector(".game-wrap");
 const scoreEl = document.querySelector("#score");
@@ -22,6 +42,8 @@ const restartButton = document.querySelector("#restartButton");
 const overlay = document.querySelector("#overlay");
 const overlayText = document.querySelector("#overlayText");
 const startButton = document.querySelector("#startButton");
+const briefingOverlay = document.querySelector("#briefingOverlay");
+const briefingStartButton = document.querySelector("#briefingStartButton");
 const musicOnButton = document.querySelector("#musicOnButton");
 const musicOffButton = document.querySelector("#musicOffButton");
 const soundOnButton = document.querySelector("#soundOnButton");
@@ -31,17 +53,30 @@ const WORLD = { w: 1290, h: 600 };
 const STORAGE_KEY = "baked-snake-best";
 const SCORE_SCALE = 100;
 const LEVEL_ONE_TARGET = 1000;
-const MUSIC_LOOP_START = 51;
+const MENU_MUSIC_SRC = "./assets/audio/menu-coin-clash.mp3";
+const GAME_MUSIC_SRC = "./assets/audio/coin-clash.mp3";
+const MENU_MUSIC_LOOP_START = 0;
+const GAME_MUSIC_LOOP_START = 51;
 const MUSIC_VOLUME = 0.42;
 const MUSIC_NORMAL_RATE = 1;
 const MUSIC_SLOWMO_RATE = 0.8;
 const MUSIC_NORMAL_CUTOFF = 18000;
 const MUSIC_SLOWMO_CUTOFF = 680;
-const PICKUP_SOUND_VOLUME = 0.58;
+const PICKUP_SOUND_VOLUME = 1;
+const BITE_SOUND_VOLUME = 0.247;
+const PICKUP_SOUND_DELAY = 35;
+const RED_X_SHOUT_SRC = "./assets/audio/red-x-shout.wav";
+const RED_X_SHOUT_VOLUME = 0.45;
+const BLUE_X_SHOUT_SRC = "./assets/audio/blue-x-shout.wav";
+const BLUE_X_SHOUT_VOLUME = 0.5;
+const BLUE_X_SHOUT_RATE = 0.8;
+const DEATH_BOOM_VOLUME = 0.72;
+const HERO_ITEM_SPAWN_VOLUME = 0.62;
 const DEBUG_DEATH = new URLSearchParams(window.location.search).has("debugDeath");
 const DEBUG_BACKGROUND_B = new URLSearchParams(window.location.search).has("debugBgB");
 const DEBUG_MOUTH = new URLSearchParams(window.location.search).get("debugMouth");
 const DEBUG_SLOWMO = new URLSearchParams(window.location.search).has("debugSlowMo");
+const DEBUG_TRIP = new URLSearchParams(window.location.search).has("debugTrip");
 const X_ITEM_UNLOCK = {
   score: 180,
   length: 340,
@@ -56,6 +91,8 @@ const BODY_TEXTURE_WIDTH = 24;
 const BODY_TEXTURE_LENGTH = 46;
 const BODY_TEXTURE_STEP = 13;
 const BODY_TEXTURE_WRAP_INSET = 8;
+const FLOOR_TILE_PATTERN_SIZE = 360;
+const ITEM_SPRITE_HEIGHT = 43;
 const MOUTH_PREP_DISTANCE = 96;
 const MOUTH_BITE_TIME = 0.18;
 const SPAWN_DELAY = { min: 0.85, max: 1.75 };
@@ -74,44 +111,124 @@ loadHeadSprite("littleOpen", "./assets/snake-head-little-open-v2-source.png?v=mo
 loadHeadSprite("open", "./assets/snake-head-open-v2-source.png?v=mouth-cycle-v1");
 
 snakeBodyImage.addEventListener("load", () => {
-  snakeBodySprite = buildSnakeBodySprite(snakeBodyImage);
+  assetLoadState.body.loaded = true;
+  try {
+    snakeBodySprite = buildSnakeBodySprite(snakeBodyImage);
+    assetLoadState.body.processed = true;
+  } catch (error) {
+    console.warn("Baked Snake: using Safari-safe body texture fallback", error);
+    snakeBodySprite = buildSnakeBodySpriteFallback(snakeBodyImage);
+    assetLoadState.body.fallback = true;
+    assetLoadState.body.error = error?.message || String(error);
+  }
 });
 snakeBodyImage.src = "./assets/snake-body-sheet.png?v=body-texture-v1";
+
+floorTileImage.addEventListener("load", () => {
+  floorTilePattern = buildFloorTilePattern(floorTileImage);
+});
+floorTileImage.src = "./assets/floor-tile.png?v=floor-tile-v1";
+
+loadItemSprite("blue1", "./assets/item-blue1-coffee.png?v=blue1-coffee-v1");
+loadItemSprite("blue2", "./assets/item-blue2-donut.png?v=blue2-donut-v2");
+loadItemSprite("blue3", "./assets/item-blue3-pizza.png?v=blue3-pizza-v1");
+loadItemSprite("bluex", "./assets/item-bluex-bottle.png?v=bluex-bottle-v1");
+loadItemSprite("red1", "./assets/item-red1-gummy.png?v=red1-gummy-v4");
+loadItemSprite("red2", "./assets/item-red2-mushroom.png?v=red2-mushroom-v1");
+loadItemSprite("red3", "./assets/item-red3-capsule.png?v=red3-capsule-v1");
+loadItemSprite("redx", "./assets/item-redx-bottle.png?v=redx-bottle-v1");
 
 function loadHeadSprite(key, src) {
   const image = new Image();
   image.addEventListener("load", () => {
-    snakeHeadSprites[key] = buildSnakeHeadSprite(image);
+    assetLoadState.heads[key].loaded = true;
+    try {
+      snakeHeadSprites[key] = buildSnakeHeadSprite(image);
+      assetLoadState.heads[key].processed = true;
+    } catch (error) {
+      console.warn(`Baked Snake: using Safari-safe ${key} head fallback`, error);
+      snakeHeadSprites[key] = buildSnakeHeadSpriteFallback(key);
+      assetLoadState.heads[key].fallback = true;
+      assetLoadState.heads[key].error = error?.message || String(error);
+    }
   });
   image.src = src;
 }
 
-const music = new Audio("./assets/audio/coin-clash.mp3");
+function buildFloorTilePattern(image) {
+  const tileCanvas = document.createElement("canvas");
+  tileCanvas.width = FLOOR_TILE_PATTERN_SIZE;
+  tileCanvas.height = FLOOR_TILE_PATTERN_SIZE;
+  const tileCtx = tileCanvas.getContext("2d");
+  tileCtx.drawImage(image, 0, 0, tileCanvas.width, tileCanvas.height);
+  return ctx.createPattern(tileCanvas, "repeat");
+}
+
+function loadItemSprite(key, src) {
+  const image = new Image();
+  image.addEventListener("load", () => {
+    itemSprites[key] = image;
+  });
+  image.src = src;
+}
+
+const music = new Audio(MENU_MUSIC_SRC);
 music.id = "backgroundMusic";
 music.preload = "auto";
 music.autoplay = true;
-music.muted = true;
+music.loop = true;
+music.muted = false;
 music.volume = MUSIC_VOLUME;
 music.setAttribute("playsinline", "");
-music.dataset.loopStart = String(MUSIC_LOOP_START);
+music.dataset.loopStart = String(MENU_MUSIC_LOOP_START);
 document.body.appendChild(music);
 
 const pickupSounds = Array.from({ length: 4 }, () => {
   const sound = new Audio("./assets/audio/gather-point-regular.wav");
   sound.preload = "auto";
   sound.volume = PICKUP_SOUND_VOLUME;
+  sound.preservesPitch = false;
+  sound.mozPreservesPitch = false;
+  sound.webkitPreservesPitch = false;
+  return sound;
+});
+const biteSounds = Array.from({ length: 4 }, () => {
+  const sound = new Audio("./assets/audio/quick-bite.wav");
+  sound.preload = "auto";
+  sound.volume = BITE_SOUND_VOLUME;
+  return sound;
+});
+const deathBoomSounds = Array.from({ length: 2 }, () => {
+  const sound = new Audio("./assets/audio/end-boom.wav");
+  sound.preload = "auto";
+  sound.volume = DEATH_BOOM_VOLUME;
+  return sound;
+});
+const heroItemSpawnSounds = Array.from({ length: 2 }, () => {
+  const sound = new Audio("./assets/audio/hero-item-spawn.wav");
+  sound.preload = "auto";
+  sound.volume = HERO_ITEM_SPAWN_VOLUME;
   return sound;
 });
 let pickupSoundIndex = 0;
+let biteSoundIndex = 0;
+let deathBoomSoundIndex = 0;
+let heroItemSpawnSoundIndex = 0;
 
 let musicStarted = false;
 let musicStatus = "waiting";
 let musicNeedsCue = false;
 let musicEnabled = true;
+let musicMode = "menu";
 let soundEnabled = true;
 let audioContext = null;
 let musicFilter = null;
 let musicAudioSource = null;
+let redXShoutBuffer = null;
+let redXShoutLoading = null;
+let blueXShoutBuffer = null;
+let blueXShoutLoading = null;
+let redXReverbBuffer = null;
 
 function updateMusicMenu() {
   musicOnButton.classList.toggle("active", musicEnabled);
@@ -127,9 +244,40 @@ function updateSoundMenu() {
   soundOffButton.setAttribute("aria-pressed", String(!soundEnabled));
 }
 
+function musicLoopStart() {
+  return musicMode === "game" ? GAME_MUSIC_LOOP_START : MENU_MUSIC_LOOP_START;
+}
+
+function musicSourceForMode(mode) {
+  return mode === "game" ? GAME_MUSIC_SRC : MENU_MUSIC_SRC;
+}
+
+function switchMusicMode(mode) {
+  if (musicMode === mode) return;
+
+  const wasPaused = music.paused;
+  musicMode = mode;
+  musicNeedsCue = true;
+  music.loop = mode === "menu";
+  music.playbackRate = MUSIC_NORMAL_RATE;
+  music.src = musicSourceForMode(mode);
+  music.dataset.loopStart = String(musicLoopStart());
+  music.load();
+  cueMusicLoopPoint();
+
+  if (!wasPaused && musicEnabled) {
+    playMusic();
+  }
+}
+
 function cueMusicLoopPoint() {
+  if (musicMode === "menu") {
+    musicStatus = "cued";
+    return;
+  }
+
   try {
-    music.currentTime = MUSIC_LOOP_START;
+    music.currentTime = musicLoopStart();
     musicStatus = "cued";
   } catch {
     music.addEventListener("loadedmetadata", cueMusicLoopPoint, { once: true });
@@ -137,8 +285,13 @@ function cueMusicLoopPoint() {
 }
 
 function confirmMusicCue() {
+  if (musicMode === "menu") {
+    musicNeedsCue = false;
+    return;
+  }
+
   if (!musicNeedsCue) return;
-  if (music.currentTime >= MUSIC_LOOP_START - 0.35) {
+  if (music.currentTime >= musicLoopStart() - 0.35) {
     musicNeedsCue = false;
     return;
   }
@@ -146,7 +299,9 @@ function confirmMusicCue() {
 }
 
 function playMusic() {
-  ensureMusicEffects();
+  if (musicMode === "game") {
+    ensureMusicEffects();
+  }
   musicStatus = music.muted ? "starting-muted" : "starting";
   music.play().then(() => {
     if (audioContext?.state === "suspended") {
@@ -162,11 +317,13 @@ function playMusic() {
 
 function primeMenuMusic() {
   if (!musicEnabled) return;
+  switchMusicMode("menu");
 
   if (!musicStarted) {
     musicStarted = true;
     musicNeedsCue = true;
-    music.muted = true;
+    music.muted = false;
+    music.volume = MUSIC_VOLUME;
     music.load();
     cueMusicLoopPoint();
   }
@@ -176,8 +333,32 @@ function primeMenuMusic() {
   }
 }
 
+function startMenuMusic() {
+  if (!musicEnabled) return;
+  switchMusicMode("menu");
+
+  if (!musicStarted) {
+    musicStarted = true;
+    musicNeedsCue = true;
+    music.load();
+    cueMusicLoopPoint();
+  }
+
+  music.muted = false;
+  music.volume = MUSIC_VOLUME;
+
+  if (music.paused) {
+    playMusic();
+  } else {
+    confirmMusicCue();
+    musicStatus = "playing";
+  }
+}
+
 function startMusic() {
   if (!musicEnabled) return;
+  switchMusicMode("game");
+  music.loop = false;
 
   if (!musicStarted) {
     musicStarted = true;
@@ -189,6 +370,8 @@ function startMusic() {
   music.muted = false;
   music.volume = MUSIC_VOLUME;
   ensureMusicEffects();
+  loadRedXShout();
+  loadBlueXShout();
 
   if (music.paused) {
     playMusic();
@@ -209,7 +392,11 @@ function setMusicEnabled(enabled) {
     return;
   }
 
-  startMusic();
+  if (running) {
+    startMusic();
+  } else {
+    startMenuMusic();
+  }
 }
 
 function setSoundEnabled(enabled) {
@@ -217,21 +404,188 @@ function setSoundEnabled(enabled) {
   updateSoundMenu();
 }
 
-function playPickupSound() {
-  if (!soundEnabled) return;
-
-  const sound = pickupSounds[pickupSoundIndex];
-  pickupSoundIndex = (pickupSoundIndex + 1) % pickupSounds.length;
-  sound.volume = PICKUP_SOUND_VOLUME;
+function playSoundFromPool(sounds, index, volume, playbackRate = 1) {
+  const sound = sounds[index];
+  sound.volume = volume;
+  sound.playbackRate = playbackRate;
+  sound.preservesPitch = false;
+  sound.mozPreservesPitch = false;
+  sound.webkitPreservesPitch = false;
   sound.currentTime = 0;
   sound.play().catch(() => {});
+  return (index + 1) % sounds.length;
+}
+
+function playBiteSound() {
+  if (!soundEnabled) return;
+
+  biteSoundIndex = playSoundFromPool(biteSounds, biteSoundIndex, BITE_SOUND_VOLUME);
+}
+
+function playGatherSound(streak = 1) {
+  if (!soundEnabled) return;
+
+  const playbackRate = 1 + clamp(streak - 1, 0, 5) * 0.13;
+  window.setTimeout(() => {
+    if (!soundEnabled) return;
+    pickupSoundIndex = playSoundFromPool(pickupSounds, pickupSoundIndex, PICKUP_SOUND_VOLUME, playbackRate);
+  }, PICKUP_SOUND_DELAY);
+}
+
+function playDeathBoomSound() {
+  if (!soundEnabled) return;
+
+  deathBoomSoundIndex = playSoundFromPool(deathBoomSounds, deathBoomSoundIndex, DEATH_BOOM_VOLUME);
+}
+
+function playHeroItemSpawnSound() {
+  if (!soundEnabled) return;
+
+  heroItemSpawnSoundIndex = playSoundFromPool(heroItemSpawnSounds, heroItemSpawnSoundIndex, HERO_ITEM_SPAWN_VOLUME);
+}
+
+function getAudioContext() {
+  if (audioContext) return audioContext;
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+
+  audioContext = new AudioContextClass();
+  return audioContext;
+}
+
+function buildEtherealReverbBuffer(context) {
+  const duration = 2.8;
+  const sampleRate = context.sampleRate;
+  const length = Math.floor(sampleRate * duration);
+  const impulse = context.createBuffer(2, length, sampleRate);
+
+  for (let channel = 0; channel < impulse.numberOfChannels; channel += 1) {
+    const data = impulse.getChannelData(channel);
+    for (let i = 0; i < length; i += 1) {
+      const t = i / length;
+      const shimmer = Math.sin(i * 0.019 + channel) * 0.38 + Math.sin(i * 0.047) * 0.18;
+      data[i] = (Math.random() * 2 - 1 + shimmer) * Math.pow(1 - t, 2.6);
+    }
+  }
+
+  return impulse;
+}
+
+function loadReverbShout(src, assignBuffer, getBuffer, assignLoading, getLoading) {
+  if (getBuffer() || getLoading()) return getLoading();
+  const context = getAudioContext();
+  if (!context || !window.fetch) return Promise.resolve(null);
+
+  const loading = fetch(src)
+    .then((response) => response.arrayBuffer())
+    .then((data) => context.decodeAudioData(data))
+    .then((buffer) => {
+      assignBuffer(buffer);
+      return buffer;
+    })
+    .catch(() => null);
+  assignLoading(loading);
+
+  return loading;
+}
+
+function loadRedXShout() {
+  return loadReverbShout(
+    RED_X_SHOUT_SRC,
+    (buffer) => { redXShoutBuffer = buffer; },
+    () => redXShoutBuffer,
+    (loading) => { redXShoutLoading = loading; },
+    () => redXShoutLoading
+  );
+}
+
+function loadBlueXShout() {
+  return loadReverbShout(
+    BLUE_X_SHOUT_SRC,
+    (buffer) => { blueXShoutBuffer = buffer; },
+    () => blueXShoutBuffer,
+    (loading) => { blueXShoutLoading = loading; },
+    () => blueXShoutLoading
+  );
+}
+
+function playReverbShout({ src, buffer, load, volume, rate = 1, retry }) {
+  if (!soundEnabled) return;
+
+  const context = getAudioContext();
+  if (!context) {
+    const fallback = new Audio(src);
+    fallback.volume = volume;
+    fallback.playbackRate = rate;
+    fallback.play().catch(() => {});
+    return;
+  }
+
+  if (context.state === "suspended") {
+    context.resume().catch(() => {});
+  }
+
+  if (!buffer()) {
+    load()?.then(() => {
+      if (soundEnabled) retry();
+    });
+    return;
+  }
+
+  if (!redXReverbBuffer) {
+    redXReverbBuffer = buildEtherealReverbBuffer(context);
+  }
+
+  const source = context.createBufferSource();
+  const dryGain = context.createGain();
+  const wetGain = context.createGain();
+  const convolver = context.createConvolver();
+  const highpass = context.createBiquadFilter();
+
+  source.buffer = buffer();
+  source.playbackRate.value = rate;
+  dryGain.gain.value = volume * 0.62;
+  wetGain.gain.value = volume * 0.72;
+  highpass.type = "highpass";
+  highpass.frequency.value = 360;
+  convolver.buffer = redXReverbBuffer;
+
+  source.connect(dryGain);
+  dryGain.connect(context.destination);
+  source.connect(highpass);
+  highpass.connect(convolver);
+  convolver.connect(wetGain);
+  wetGain.connect(context.destination);
+  source.start();
+}
+
+function playRedXShout() {
+  playReverbShout({
+    src: RED_X_SHOUT_SRC,
+    buffer: () => redXShoutBuffer,
+    load: loadRedXShout,
+    volume: RED_X_SHOUT_VOLUME,
+    retry: playRedXShout,
+  });
+}
+
+function playBlueXShout() {
+  playReverbShout({
+    src: BLUE_X_SHOUT_SRC,
+    buffer: () => blueXShoutBuffer,
+    load: loadBlueXShout,
+    volume: BLUE_X_SHOUT_VOLUME,
+    rate: BLUE_X_SHOUT_RATE,
+    retry: playBlueXShout,
+  });
 }
 
 function ensureMusicEffects() {
   if (musicFilter || (!window.AudioContext && !window.webkitAudioContext)) return;
 
-  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  audioContext = new AudioContextClass();
+  audioContext = getAudioContext();
+  if (!audioContext) return;
   musicAudioSource = audioContext.createMediaElementSource(music);
   musicFilter = audioContext.createBiquadFilter();
   musicFilter.type = "lowpass";
@@ -254,6 +608,8 @@ function updateSlowMoAudio(slowMoFocus) {
 }
 
 music.addEventListener("ended", () => {
+  if (musicMode === "menu") return;
+
   musicNeedsCue = true;
   cueMusicLoopPoint();
   music.play().then(() => {
@@ -284,7 +640,8 @@ music.addEventListener("timeupdate", () => {
 
 window.bakedSnakeAudioState = () => ({
   currentTime: music.currentTime,
-  loopStart: MUSIC_LOOP_START,
+  loopStart: musicLoopStart(),
+  mode: musicMode,
   paused: music.paused,
   src: music.currentSrc,
   status: musicStatus,
@@ -295,6 +652,8 @@ window.bakedSnakeAudioState = () => ({
   filterFrequency: musicFilter?.frequency.value || null,
   filterQ: musicFilter?.Q.value || null,
 });
+
+window.bakedSnakeAssetState = () => JSON.parse(JSON.stringify(assetLoadState));
 
 window.bakedSnakeDebugState = () => ({
   head: state?.head || null,
@@ -309,6 +668,7 @@ const itemTypes = [
     glyph: "1",
     kind: "cleanse",
     color: HELP_COLOR,
+    sprite: "blue1",
     points: 5,
     growth: 24,
     radius: 13,
@@ -325,6 +685,7 @@ const itemTypes = [
     glyph: "2",
     kind: "cleanse",
     color: HELP_COLOR,
+    sprite: "blue2",
     points: 8,
     growth: 32,
     radius: 14,
@@ -341,6 +702,7 @@ const itemTypes = [
     glyph: "3",
     kind: "cleanse",
     color: HELP_COLOR,
+    sprite: "blue3",
     points: 10,
     growth: 42,
     radius: 13,
@@ -358,6 +720,10 @@ const itemTypes = [
     glyph: "X",
     kind: "x-cleanse",
     color: X_HELP_COLOR,
+    sprite: "bluex",
+    spriteHeight: 64,
+    hero: true,
+    rotationRange: 0,
     points: 25,
     growth: 0,
     radius: 17,
@@ -376,6 +742,7 @@ const itemTypes = [
     glyph: "1",
     kind: "risk",
     color: HARM_COLOR,
+    sprite: "red1",
     points: 25,
     growth: 82,
     radius: 15,
@@ -390,6 +757,7 @@ const itemTypes = [
     glyph: "2",
     kind: "risk",
     color: HARM_COLOR,
+    sprite: "red2",
     points: 60,
     growth: 122,
     radius: 15,
@@ -404,6 +772,7 @@ const itemTypes = [
     glyph: "3",
     kind: "risk",
     color: HARM_COLOR,
+    sprite: "red3",
     points: 75,
     growth: 145,
     radius: 14,
@@ -421,6 +790,10 @@ const itemTypes = [
     glyph: "X",
     kind: "x-risk",
     color: X_HARM_COLOR,
+    sprite: "redx",
+    spriteHeight: 64,
+    hero: true,
+    rotationRange: 0,
     points: 240,
     growth: 260,
     radius: 18,
@@ -445,6 +818,7 @@ const keys = {
 let state;
 let lastTime = 0;
 let running = false;
+let briefingPending = false;
 let best = Number(localStorage.getItem(STORAGE_KEY) || 0);
 bestEl.textContent = String(best);
 titleBestEl.textContent = String(best);
@@ -464,9 +838,10 @@ function newState() {
     head: { x: startX, y: startY },
     trail: [{ x: startX, y: startY }],
     items: [],
+    scorePopups: [],
     effects: {
       wobble: 0,
-      trip: 0,
+      trip: DEBUG_TRIP ? 1.25 : 0,
       stim: 0,
       jitter: 0,
       snap: 0,
@@ -490,7 +865,10 @@ function newState() {
 
 function startGame() {
   state = newState();
-  running = true;
+  running = false;
+  briefingPending = true;
+  keys.left = false;
+  keys.right = false;
   lastTime = performance.now();
   updateHud();
   updateFrameGlow();
@@ -498,11 +876,24 @@ function startGame() {
   overlay.classList.remove("game-over");
   overlay.classList.add("hidden");
   deathOverlay.classList.add("hidden");
+  briefingOverlay.classList.remove("hidden");
+  draw();
+  briefingStartButton.focus({ preventScroll: true });
+}
+
+function beginBriefedGame() {
+  if (!briefingPending || running) return;
+  briefingPending = false;
+  briefingOverlay.classList.add("hidden");
+  startMusic();
+  running = true;
+  lastTime = performance.now();
   requestAnimationFrame(loop);
 }
 
 function gameOver() {
   running = false;
+  briefingPending = false;
   state.alive = false;
   updateSlowMoAudio(0);
   gameWrap.style.setProperty("--slowmo-focus", "0.000");
@@ -514,6 +905,8 @@ function gameOver() {
   titleBestEl.textContent = String(best);
   deathScoreEl.textContent = String(state.score);
   deathBestEl.textContent = String(best);
+  playDeathBoomSound();
+  briefingOverlay.classList.add("hidden");
   deathOverlay.classList.remove("hidden");
   restartButton.focus({ preventScroll: true });
 }
@@ -567,6 +960,7 @@ function update(dt) {
   collectItems();
   updateMouth(dt);
   expireItems(dt);
+  updateScorePopups(dt);
   state.spawnDelay -= dt;
   if (state.items.length < targetItemCount() && state.spawnDelay <= 0) {
     spawnItem(state);
@@ -601,6 +995,7 @@ function draw() {
     ctx.fillRect(0, 0, WORLD.w, WORLD.h);
   }
 
+  drawScorePopups();
   ctx.restore();
 }
 
@@ -623,6 +1018,8 @@ function drawGroundPlane(trip) {
   glow.addColorStop(1, "rgba(0, 0, 0, 0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+
+  drawFloorTileTexture(horizon, trip);
 
   ctx.save();
   ctx.globalCompositeOperation = "screen";
@@ -666,6 +1063,30 @@ function drawGroundPlane(trip) {
   vignette.addColorStop(1, "rgba(0, 0, 0, 0.58)");
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+}
+
+function drawFloorTileTexture(horizon, trip) {
+  if (!floorTilePattern) return;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, horizon - 8, WORLD.w, WORLD.h - horizon + 8);
+  ctx.clip();
+  ctx.globalAlpha = 0.34 + clamp(trip, 0, 1) * 0.08;
+  ctx.globalCompositeOperation = "screen";
+  ctx.translate(-24, horizon - 18);
+  ctx.fillStyle = floorTilePattern;
+  ctx.fillRect(0, 0, WORLD.w + FLOOR_TILE_PATTERN_SIZE, WORLD.h - horizon + FLOOR_TILE_PATTERN_SIZE);
+  ctx.restore();
+
+  ctx.save();
+  const fade = ctx.createLinearGradient(0, horizon - 8, 0, WORLD.h);
+  fade.addColorStop(0, "rgba(5, 8, 14, 0.88)");
+  fade.addColorStop(0.28, "rgba(5, 8, 14, 0.2)");
+  fade.addColorStop(1, "rgba(5, 8, 14, 0.34)");
+  ctx.fillStyle = fade;
+  ctx.fillRect(0, horizon - 8, WORLD.w, WORLD.h - horizon + 8);
+  ctx.restore();
 }
 
 function drawTripBackdrop(trip) {
@@ -864,6 +1285,23 @@ function buildSnakeBodySprite(image) {
   return sprite;
 }
 
+function buildSnakeBodySpriteFallback(image) {
+  const crop = { x: 610, y: 150, w: 130, h: 330 };
+  const sprite = document.createElement("canvas");
+  sprite.width = crop.w;
+  sprite.height = crop.h;
+
+  const spriteCtx = sprite.getContext("2d");
+  spriteCtx.drawImage(image, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
+  spriteCtx.globalCompositeOperation = "destination-in";
+  spriteCtx.fillStyle = "#000";
+  spriteCtx.beginPath();
+  spriteCtx.ellipse(crop.w * 0.5, crop.h * 0.5, crop.w * 0.48, crop.h * 0.49, 0, 0, Math.PI * 2);
+  spriteCtx.fill();
+  spriteCtx.globalCompositeOperation = "source-over";
+  return sprite;
+}
+
 function buildSnakeHeadSprite(image) {
   const sprite = document.createElement("canvas");
   sprite.width = image.naturalWidth;
@@ -926,6 +1364,100 @@ function buildSnakeHeadSprite(image) {
   return sprite;
 }
 
+function buildSnakeHeadSpriteFallback(key) {
+  const sprite = document.createElement("canvas");
+  sprite.width = 96;
+  sprite.height = 96;
+
+  const spriteCtx = sprite.getContext("2d");
+  const mouthOpen = key === "open" ? 1 : key === "littleOpen" ? 0.52 : 0;
+
+  spriteCtx.translate(48, 51);
+  spriteCtx.lineJoin = "round";
+  spriteCtx.lineCap = "round";
+
+  const headGradient = spriteCtx.createLinearGradient(-28, -32, 30, 34);
+  headGradient.addColorStop(0, "#c9ff34");
+  headGradient.addColorStop(0.42, "#63e82d");
+  headGradient.addColorStop(1, "#079065");
+
+  spriteCtx.fillStyle = "#07100c";
+  spriteCtx.beginPath();
+  spriteCtx.ellipse(0, 0, 32, 34, 0, 0, Math.PI * 2);
+  spriteCtx.fill();
+
+  spriteCtx.fillStyle = headGradient;
+  spriteCtx.beginPath();
+  spriteCtx.ellipse(0, 0, 27, 30, 0, 0, Math.PI * 2);
+  spriteCtx.fill();
+
+  const spots = [
+    [-14, -16, 5], [3, -19, 4], [16, -11, 5], [-19, 1, 4],
+    [10, 5, 5], [-7, 16, 4], [18, 17, 3], [-20, 20, 3],
+  ];
+  for (const [x, y, radius] of spots) {
+    spriteCtx.fillStyle = "rgba(22, 120, 36, 0.42)";
+    spriteCtx.beginPath();
+    spriteCtx.arc(x, y, radius, 0, Math.PI * 2);
+    spriteCtx.fill();
+    spriteCtx.fillStyle = "rgba(222, 255, 58, 0.25)";
+    spriteCtx.beginPath();
+    spriteCtx.arc(x - 1.5, y - 1.5, radius * 0.45, 0, Math.PI * 2);
+    spriteCtx.fill();
+  }
+
+  spriteCtx.fillStyle = "#f9ffd8";
+  spriteCtx.strokeStyle = "#08100b";
+  spriteCtx.lineWidth = 3;
+  spriteCtx.beginPath();
+  spriteCtx.ellipse(-11, -8, 7, 10, -0.14, 0, Math.PI * 2);
+  spriteCtx.ellipse(11, -8, 7, 10, 0.14, 0, Math.PI * 2);
+  spriteCtx.fill();
+  spriteCtx.stroke();
+
+  spriteCtx.fillStyle = "#101212";
+  spriteCtx.beginPath();
+  spriteCtx.arc(-9, -7, 2.7, 0, Math.PI * 2);
+  spriteCtx.arc(9, -7, 2.7, 0, Math.PI * 2);
+  spriteCtx.fill();
+
+  spriteCtx.strokeStyle = "#07100c";
+  spriteCtx.lineWidth = 3.5;
+  spriteCtx.beginPath();
+  if (mouthOpen > 0.1) {
+    spriteCtx.fillStyle = "#26050f";
+    spriteCtx.ellipse(0, 13, 9 + mouthOpen * 4, 4 + mouthOpen * 7, 0, 0, Math.PI * 2);
+    spriteCtx.fill();
+    spriteCtx.stroke();
+    spriteCtx.strokeStyle = "#ff4b7a";
+    spriteCtx.lineWidth = 2.5;
+    spriteCtx.beginPath();
+    spriteCtx.moveTo(0, 19);
+    spriteCtx.lineTo(-4, 27 + mouthOpen * 6);
+    spriteCtx.moveTo(0, 19);
+    spriteCtx.lineTo(5, 27 + mouthOpen * 6);
+    spriteCtx.stroke();
+  } else {
+    spriteCtx.moveTo(-9, 13);
+    spriteCtx.quadraticCurveTo(0, 18, 9, 13);
+    spriteCtx.stroke();
+  }
+
+  spriteCtx.strokeStyle = "rgba(255, 67, 191, 0.82)";
+  spriteCtx.lineWidth = 3;
+  spriteCtx.beginPath();
+  spriteCtx.arc(0, 1, 31, 0.58, Math.PI - 0.58);
+  spriteCtx.stroke();
+
+  spriteCtx.strokeStyle = "rgba(88, 232, 255, 0.58)";
+  spriteCtx.lineWidth = 2;
+  spriteCtx.beginPath();
+  spriteCtx.arc(0, 0, 28, Math.PI + 0.5, Math.PI * 2 - 0.5);
+  spriteCtx.stroke();
+
+  return sprite;
+}
+
 function drawHead() {
   const h = state.head;
   const a = state.angle;
@@ -934,6 +1466,14 @@ function drawHead() {
   ctx.save();
   ctx.translate(h.x, h.y);
   ctx.rotate(a);
+  const tripPulse = clamp(state.effects.trip, 0, 3.2);
+  if (tripPulse > 0.03) {
+    const pulseAmount = clamp(0.04 + tripPulse * 0.085, 0, 0.27);
+    const primaryPulse = Math.sin(state.time * 8.8) * pulseAmount;
+    const secondaryPulse = Math.sin(state.time * 17.6 + 0.8) * pulseAmount * 0.22;
+    const headScale = 1 + primaryPulse + secondaryPulse;
+    ctx.scale(headScale, headScale);
+  }
 
   const headSprite = currentHeadSprite();
   if (headSprite) {
@@ -1000,9 +1540,65 @@ function drawItem(item) {
   const lifeRatio = clamp(item.life / item.ttl, 0, 1);
   const warningBlink = lifeRatio < 0.22 ? 0.62 + Math.sin(state.time * 18) * 0.28 : 1;
   const isXItem = item.type.kind === "x-cleanse" || item.type.kind === "x-risk";
+  const sprite = item.type.sprite ? itemSprites[item.type.sprite] : null;
   ctx.save();
   ctx.translate(item.x, item.y + bob);
   ctx.globalAlpha = clamp(0.35 + lifeRatio * 0.65, 0.35, 1) * warningBlink;
+  if (sprite) {
+    const pulse = 1 + Math.sin(state.time * 6 + item.x * 0.01) * 0.035;
+    const spriteHeight = (item.type.spriteHeight || ITEM_SPRITE_HEIGHT) * pulse;
+    const spriteWidth = spriteHeight * (sprite.naturalWidth / sprite.naturalHeight);
+    const ringRadius = item.type.radius + 10;
+    const ringIsCleanse = item.type.kind === "cleanse" || item.type.kind === "x-cleanse";
+    const ringGlow = ringIsCleanse ? "rgba(66,202,253,0.22)" : "rgba(255,42,80,0.22)";
+    const ringTrack = ringIsCleanse ? "rgba(5,35,45,0.52)" : "rgba(35,8,13,0.52)";
+    const ringProgress = ringIsCleanse ? "rgba(92,238,255,0.64)" : "rgba(255,42,80,0.64)";
+    if (item.type.hero) {
+      const heroPulse = 0.5 + 0.5 * Math.sin(state.time * 7.5 + item.x * 0.015);
+      const haloRadius = ringRadius + 5 + heroPulse * 5;
+      const heroPrimary = ringIsCleanse ? "120,248,255" : "255,42,80";
+      const heroSecondary = ringIsCleanse ? "255,255,255" : "255,220,220";
+      ctx.save();
+      ctx.globalCompositeOperation = "screen";
+      ctx.shadowColor = item.type.color;
+      ctx.shadowBlur = 28 + heroPulse * 18;
+      ctx.strokeStyle = `rgba(${heroPrimary},${0.28 + heroPulse * 0.22})`;
+      ctx.lineWidth = 6 + heroPulse * 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, haloRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(${heroSecondary},${0.18 + heroPulse * 0.16})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, haloRadius + 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.shadowColor = item.type.color;
+    ctx.shadowBlur = 14;
+    ctx.strokeStyle = ringGlow;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = ringTrack;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = ringProgress;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, ringRadius + 2, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * lifeRatio);
+    ctx.stroke();
+    ctx.shadowColor = item.type.color;
+    ctx.shadowBlur = 16;
+    ctx.rotate(item.rotation || 0);
+    ctx.drawImage(sprite, -spriteWidth / 2, -spriteHeight / 2, spriteWidth, spriteHeight);
+    ctx.restore();
+    return;
+  }
   ctx.shadowColor = item.type.color;
   ctx.shadowBlur = isXItem ? 26 : item.type.kind === "risk" ? 18 : 10;
   ctx.fillStyle = item.type.color;
@@ -1042,18 +1638,96 @@ function expireItems(dt) {
   }
 }
 
+function updateScorePopups(dt) {
+  for (let i = state.scorePopups.length - 1; i >= 0; i -= 1) {
+    const popup = state.scorePopups[i];
+    popup.age += dt;
+    popup.x += popup.vx * dt;
+    popup.y += popup.vy * dt;
+    popup.vy -= 5 * dt;
+    if (popup.age >= popup.ttl) {
+      state.scorePopups.splice(i, 1);
+    }
+  }
+}
+
+function addScorePopup(item, value, combo) {
+  const isHero = isXItemType(item.type);
+  const isHarm = isHarmItem(item.type);
+  state.scorePopups.push({
+    x: clamp(item.x, 42, WORLD.w - 42),
+    y: clamp(item.y - item.type.radius - 12, 42, WORLD.h - 42),
+    vx: (Math.random() - 0.5) * 12,
+    vy: -34 - Math.random() * 10,
+    age: 0,
+    ttl: isHero ? 1 : 0.82,
+    value,
+    combo,
+    color: isHero ? item.type.color : isHarm ? "#ff6a84" : "#72ecff",
+    shadow: isHero ? item.type.color : isHarm ? "#ff2a50" : "#42cafd",
+  });
+}
+
+function drawScorePopups() {
+  if (!state.scorePopups.length) return;
+
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const popup of state.scorePopups) {
+    const t = clamp(popup.age / popup.ttl, 0, 1);
+    const alpha = Math.sin((1 - t) * Math.PI * 0.5);
+    const scale = 1 + (1 - t) * 0.12;
+    const text = `+${popup.value}`;
+    const comboText = popup.combo > 1 ? ` x${popup.combo}` : "";
+
+    ctx.save();
+    ctx.translate(popup.x, popup.y);
+    ctx.scale(scale, scale);
+    ctx.globalAlpha = alpha * 0.92;
+    ctx.font = "950 17px 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(3, 6, 14, 0.72)";
+    ctx.shadowColor = popup.shadow;
+    ctx.shadowBlur = 12;
+    ctx.strokeText(text, 0, 0);
+    ctx.fillStyle = popup.color;
+    ctx.fillText(text, 0, 0);
+    if (comboText) {
+      ctx.globalAlpha = alpha * 0.72;
+      ctx.font = "850 11px 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.fillStyle = "#fff2a8";
+      ctx.fillText(comboText, 0, 16);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
 function collectItems() {
   for (let i = state.items.length - 1; i >= 0; i -= 1) {
     const item = state.items[i];
     if (wrappedDistance(state.head, item) <= item.type.radius + 15) {
+      if (!item.bitePlayed) {
+        playBiteSound();
+      }
       state.items.splice(i, 1);
       state.mouthBiteTimer = MOUTH_BITE_TIME;
       const combo = comboForItem(item.type);
       const lengthBeforeApply = state.length;
-      state.score += item.type.points * SCORE_SCALE * combo;
+      const scoreGain = item.type.points * SCORE_SCALE * combo;
+      state.score += scoreGain;
       state.length += item.type.growth;
       state.screenPulse = isHarmItem(item.type) ? 1 : 0.55;
-      playPickupSound();
+      addScorePopup(item, scoreGain, combo);
+      playGatherSound(combo);
+      if (item.type.id === "redx") {
+        playRedXShout();
+      }
+      if (item.type.id === "bluex") {
+        playBlueXShout();
+        playDeathBoomSound();
+      }
       item.type.apply(state);
       if (state.length < lengthBeforeApply) {
         trimTrail();
@@ -1074,7 +1748,8 @@ function updateMouth(dt) {
 
   let nearest = Infinity;
   for (const item of state.items) {
-    nearest = Math.min(nearest, wrappedDistance(state.head, item) - item.type.radius);
+    const itemDistance = wrappedDistance(state.head, item) - item.type.radius;
+    nearest = Math.min(nearest, itemDistance);
   }
 
   const prep = clamp(1 - nearest / MOUTH_PREP_DISTANCE, 0, 1);
@@ -1084,9 +1759,9 @@ function updateMouth(dt) {
 }
 
 function comboForItem(type) {
-  if (!isHarmItem(type) || !isUnderMatchingInfluence(type)) {
-    state.combo.itemId = isHarmItem(type) ? type.id : null;
-    state.combo.count = isHarmItem(type) ? 1 : 0;
+  if (type.kind !== "risk") {
+    state.combo.itemId = null;
+    state.combo.count = 0;
     return 1;
   }
 
@@ -1094,7 +1769,7 @@ function comboForItem(type) {
     state.combo.count = Math.min(state.combo.count + 1, 5);
   } else {
     state.combo.itemId = type.id;
-    state.combo.count = 2;
+    state.combo.count = 1;
   }
 
   return state.combo.count;
@@ -1123,14 +1798,26 @@ function spawnItem(s) {
       y: 76 + Math.random() * (WORLD.h - 114),
       ttl: type.ttl + Math.random() * 0.8,
       life: 0,
+      rotation: type.sprite ? (Math.random() * ((type.rotationRange ?? 20) * 2) - (type.rotationRange ?? 20)) * Math.PI / 180 : 0,
+      bitePlayed: false,
     };
     item.life = item.ttl;
     if (isGoodSpawn(item)) {
       s.items.push(item);
+      if (isXItemType(type)) {
+        playHeroItemSpawnSound();
+      }
       return;
     }
   }
   s.items.push(item);
+  if (isXItemType(type)) {
+    playHeroItemSpawnSound();
+  }
+}
+
+function isXItemType(type) {
+  return type.kind === "x-cleanse" || type.kind === "x-risk";
 }
 
 function chooseItemType(s) {
@@ -1339,6 +2026,16 @@ function drawStartScreen() {
 }
 
 window.addEventListener("keydown", (event) => {
+  if (event.code === "Space") {
+    event.preventDefault();
+    if (briefingPending) {
+      beginBriefedGame();
+    } else if (!running) {
+      startGame();
+    }
+    return;
+  }
+  if (!running) return;
   if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") {
     if (isSnapMode()) {
       if (!event.repeat) snapTurn(-1);
@@ -1354,10 +2051,6 @@ window.addEventListener("keydown", (event) => {
       return;
     }
     keys.right = true;
-  }
-  if (event.code === "Space") {
-    event.preventDefault();
-    if (!running) startGame();
   }
 });
 
@@ -1406,10 +2099,20 @@ canvas.addEventListener("pointercancel", () => {
 
 window.addEventListener("keydown", () => {
   if (!running && !overlay.classList.contains("hidden")) {
-    startMusic();
+    startMenuMusic();
   }
 });
+window.addEventListener("pointerdown", () => {
+  if (!running && !overlay.classList.contains("hidden")) {
+    startMenuMusic();
+  }
+});
+startButton.addEventListener("pointerdown", (event) => {
+  event.stopPropagation();
+  startMusic();
+});
 startButton.addEventListener("click", startGame);
+briefingStartButton.addEventListener("click", beginBriefedGame);
 musicOnButton.addEventListener("click", () => setMusicEnabled(true));
 musicOffButton.addEventListener("click", () => setMusicEnabled(false));
 soundOnButton.addEventListener("click", () => setSoundEnabled(true));
