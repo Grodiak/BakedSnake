@@ -57,11 +57,12 @@ const MENU_MUSIC_SRC = "./assets/audio/menu-coin-clash.mp3";
 const GAME_MUSIC_SRC = "./assets/audio/coin-clash.mp3";
 const MENU_MUSIC_LOOP_START = 0;
 const GAME_MUSIC_LOOP_START = 51;
-const MUSIC_VOLUME = 0.42;
+const MUSIC_VOLUME = 0.35;
 const MUSIC_NORMAL_RATE = 1;
 const MUSIC_SLOWMO_RATE = 0.8;
 const MUSIC_NORMAL_CUTOFF = 18000;
 const MUSIC_SLOWMO_CUTOFF = 680;
+const PICKUP_SOUND_SRC = "./assets/audio/gather-point-regular.wav";
 const PICKUP_SOUND_VOLUME = 1;
 const BITE_SOUND_VOLUME = 0.247;
 const PICKUP_SOUND_DELAY = 35;
@@ -183,13 +184,14 @@ music.setAttribute("playsinline", "");
 music.dataset.loopStart = String(MENU_MUSIC_LOOP_START);
 document.body.appendChild(music);
 
-const pickupSounds = Array.from({ length: 4 }, () => {
-  const sound = new Audio("./assets/audio/gather-point-regular.wav");
+const pickupSounds = Array.from({ length: 8 }, () => {
+  const sound = new Audio(PICKUP_SOUND_SRC);
   sound.preload = "auto";
   sound.volume = PICKUP_SOUND_VOLUME;
   sound.preservesPitch = false;
   sound.mozPreservesPitch = false;
   sound.webkitPreservesPitch = false;
+  sound.load();
   return sound;
 });
 const biteSounds = Array.from({ length: 4 }, () => {
@@ -224,6 +226,8 @@ let soundEnabled = true;
 let audioContext = null;
 let musicFilter = null;
 let musicAudioSource = null;
+let pickupSoundBuffer = null;
+let pickupSoundLoading = null;
 let redXShoutBuffer = null;
 let redXShoutLoading = null;
 let blueXShoutBuffer = null;
@@ -370,6 +374,7 @@ function startMusic() {
   music.muted = false;
   music.volume = MUSIC_VOLUME;
   ensureMusicEffects();
+  loadPickupSoundBuffer();
   loadRedXShout();
   loadBlueXShout();
 
@@ -422,12 +427,50 @@ function playBiteSound() {
   biteSoundIndex = playSoundFromPool(biteSounds, biteSoundIndex, BITE_SOUND_VOLUME);
 }
 
+function loadPickupSoundBuffer() {
+  if (pickupSoundBuffer || pickupSoundLoading) return pickupSoundLoading;
+  const context = getAudioContext();
+  if (!context || !window.fetch) return Promise.resolve(null);
+
+  pickupSoundLoading = fetch(PICKUP_SOUND_SRC)
+    .then((response) => response.arrayBuffer())
+    .then((data) => context.decodeAudioData(data))
+    .then((buffer) => {
+      pickupSoundBuffer = buffer;
+      return buffer;
+    })
+    .catch(() => null);
+
+  return pickupSoundLoading;
+}
+
+function playBufferedPickupSound(volume, playbackRate) {
+  const context = getAudioContext();
+  if (!context || !pickupSoundBuffer) return false;
+
+  if (context.state === "suspended") {
+    context.resume().catch(() => {});
+  }
+
+  const source = context.createBufferSource();
+  const gain = context.createGain();
+  source.buffer = pickupSoundBuffer;
+  source.playbackRate.value = playbackRate;
+  gain.gain.value = volume;
+  source.connect(gain);
+  gain.connect(context.destination);
+  source.start();
+  return true;
+}
+
 function playGatherSound(streak = 1) {
   if (!soundEnabled) return;
 
   const playbackRate = 1 + clamp(streak - 1, 0, 5) * 0.13;
+  loadPickupSoundBuffer();
   window.setTimeout(() => {
     if (!soundEnabled) return;
+    if (playBufferedPickupSound(PICKUP_SOUND_VOLUME, playbackRate)) return;
     pickupSoundIndex = playSoundFromPool(pickupSounds, pickupSoundIndex, PICKUP_SOUND_VOLUME, playbackRate);
   }, PICKUP_SOUND_DELAY);
 }
