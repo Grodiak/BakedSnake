@@ -57,14 +57,14 @@ const MENU_MUSIC_SRC = "./assets/audio/menu-coin-clash.mp3";
 const GAME_MUSIC_SRC = "./assets/audio/coin-clash.mp3";
 const MENU_MUSIC_LOOP_START = 0;
 const GAME_MUSIC_LOOP_START = 51;
-const MUSIC_VOLUME = 0.28;
+const MUSIC_VOLUME = 0.31;
 const MUSIC_NORMAL_RATE = 1;
 const MUSIC_SLOWMO_RATE = 0.8;
 const MUSIC_NORMAL_CUTOFF = 18000;
 const MUSIC_SLOWMO_CUTOFF = 680;
 const PICKUP_SOUND_SRC = "./assets/audio/gather-point-regular.wav";
 const PICKUP_SOUND_VOLUME = 1;
-const BITE_SOUND_VOLUME = 0.247;
+const BITE_SOUND_VOLUME = 0.198;
 const PICKUP_SOUND_DELAY = 35;
 const RED_X_SHOUT_SRC = "./assets/audio/red-x-shout.wav";
 const RED_X_SHOUT_VOLUME = 0.45;
@@ -98,7 +98,8 @@ const MOUTH_PREP_DISTANCE = 96;
 const MOUTH_BITE_TIME = 0.18;
 const SPAWN_DELAY = { min: 0.85, max: 1.75 };
 const SNAP_MODE_THRESHOLD = 0.08;
-const SNAP_TURN = Math.PI / 4;
+const SNAP_TURN_MIN = 20 * Math.PI / 180;
+const SNAP_TURN_MAX = 90 * Math.PI / 180;
 const EFFECT_DECAY = {
   wobble: 0.075,
   trip: 0.065,
@@ -885,7 +886,7 @@ function newState() {
   const startY = WORLD.h * 0.5;
   return {
     score: 0,
-    baseSpeed: 172,
+    baseSpeed: 190,
     speedBoost: 0,
     angle: -Math.PI * 0.2,
     steerLag: 0,
@@ -1814,7 +1815,7 @@ function updateMouth(dt) {
 }
 
 function comboForItem(type) {
-  if (type.kind !== "risk") {
+  if (type.kind !== "risk" || !isUnderMatchingInfluence(type)) {
     state.combo.itemId = null;
     state.combo.count = 0;
     return 1;
@@ -1960,7 +1961,7 @@ function levelProgress() {
 function updateHud() {
   const score = state ? state.score : 0;
   scoreEl.textContent = String(score);
-  levelEl.textContent = "1";
+  levelEl.textContent = "1-1";
   levelProgressEl.style.setProperty("--progress", levelProgress().toFixed(3));
 }
 
@@ -2058,7 +2059,8 @@ function isSnapMode() {
 }
 
 function snapTurn(direction) {
-  state.angle = normalizeAngle(Math.round(state.angle / SNAP_TURN) * SNAP_TURN + direction * SNAP_TURN);
+  const randomTurn = SNAP_TURN_MIN + Math.random() * (SNAP_TURN_MAX - SNAP_TURN_MIN);
+  state.angle = normalizeAngle(state.angle + direction * randomTurn);
   state.steerLag = 0;
 }
 
