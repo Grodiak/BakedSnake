@@ -57,7 +57,7 @@ const MENU_MUSIC_SRC = "./assets/audio/menu-coin-clash.mp3";
 const GAME_MUSIC_SRC = "./assets/audio/coin-clash.mp3";
 const MENU_MUSIC_LOOP_START = 0;
 const GAME_MUSIC_LOOP_START = 51;
-const MUSIC_VOLUME = 0.35;
+const MUSIC_VOLUME = 0.28;
 const MUSIC_NORMAL_RATE = 1;
 const MUSIC_SLOWMO_RATE = 0.8;
 const MUSIC_NORMAL_CUTOFF = 18000;
@@ -650,9 +650,7 @@ function updateSlowMoAudio(slowMoFocus) {
   musicFilter.Q.setTargetAtTime(q, audioContext.currentTime, 0.055);
 }
 
-music.addEventListener("ended", () => {
-  if (musicMode === "menu") return;
-
+function loopGameMusic() {
   musicNeedsCue = true;
   cueMusicLoopPoint();
   music.play().then(() => {
@@ -662,6 +660,20 @@ music.addEventListener("ended", () => {
     musicStatus = error?.name || "blocked";
     musicStarted = false;
   });
+}
+
+function maintainMusicLoop() {
+  confirmMusicCue();
+  if (musicMode !== "game" || music.paused || !Number.isFinite(music.duration)) return;
+  if (music.duration - music.currentTime > 0.18) return;
+
+  loopGameMusic();
+}
+
+music.addEventListener("ended", () => {
+  if (musicMode === "menu") return;
+
+  loopGameMusic();
 });
 
 music.addEventListener("loadedmetadata", () => {
@@ -678,7 +690,7 @@ music.addEventListener("playing", () => {
 });
 
 music.addEventListener("timeupdate", () => {
-  confirmMusicCue();
+  maintainMusicLoop();
 });
 
 window.bakedSnakeAudioState = () => ({
