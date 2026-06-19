@@ -598,16 +598,41 @@ canvas {
 .level-progress {
   position: relative;
   z-index: 1;
-  width: min(78%, 240px);
-  height: clamp(6px, 0.65vw, 11px);
+  width: min(88%, 300px);
+  height: clamp(10px, 1vw, 17px);
   justify-self: center;
   overflow: hidden;
-  border: 1px solid rgba(234, 166, 255, 0.82);
+  border: 2px solid rgba(255, 242, 168, 0.74);
   border-radius: 999px;
-  background: rgba(18, 8, 30, 0.72);
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 242, 168, 0.08) 0,
+      rgba(255, 242, 168, 0.08) 1px,
+      transparent 1px,
+      transparent 10px
+    ),
+    rgba(18, 8, 30, 0.86);
   box-shadow:
-    inset 0 0 8px rgba(0, 0, 0, 0.7),
-    0 0 10px rgba(202, 130, 255, 0.34);
+    inset 0 0 12px rgba(0, 0, 0, 0.78),
+    0 0 12px rgba(255, 242, 168, 0.32),
+    0 0 22px rgba(92, 238, 255, 0.22);
+}
+
+.level-progress::after {
+  content: "EXIT";
+  position: absolute;
+  top: 50%;
+  right: clamp(7px, 0.65vw, 12px);
+  transform: translateY(-50%);
+  color: rgba(255, 242, 168, 0.88);
+  font-family: "Courier New", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: clamp(7px, 0.65vw, 11px);
+  font-weight: 950;
+  line-height: 1;
+  text-shadow:
+    0 0 6px rgba(255, 242, 168, 0.88),
+    0 0 12px rgba(92, 238, 255, 0.34);
 }
 
 .level-progress span {
@@ -617,10 +642,12 @@ canvas {
   transform: scaleX(var(--progress, 0));
   transform-origin: left center;
   border-radius: inherit;
-  background: linear-gradient(90deg, #72ecff, #70ff69 54%, #f0a0ff);
+  background:
+    linear-gradient(90deg, #72ecff, #70ff69 48%, #fff2a8 78%, #f0a0ff);
   box-shadow:
-    0 0 9px rgba(112, 255, 105, 0.76),
-    0 0 18px rgba(240, 160, 255, 0.46);
+    0 0 11px rgba(112, 255, 105, 0.86),
+    0 0 20px rgba(255, 242, 168, 0.52),
+    0 0 28px rgba(240, 160, 255, 0.42);
   transition: transform 160ms ease-out;
 }
 
@@ -1096,6 +1123,54 @@ p {
     0 0 25px rgba(244, 82, 255, 0.48);
 }
 
+.clear-stats {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(8px, 1vw, 14px);
+  min-height: 46px;
+  margin-top: -4px;
+  color: #fff2a8;
+  font-size: clamp(11px, 1vw, 16px);
+  font-weight: 900;
+  text-transform: uppercase;
+  text-shadow:
+    0 0 8px rgba(255, 242, 168, 0.82),
+    0 0 18px rgba(255, 94, 224, 0.34);
+}
+
+.clear-stats.hidden {
+  display: none;
+}
+
+.clear-stats > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clear-stats img {
+  width: clamp(26px, 3vw, 42px);
+  height: clamp(26px, 3vw, 42px);
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter:
+    drop-shadow(0 0 6px rgba(255, 242, 168, 0.72))
+    drop-shadow(0 0 12px rgba(255, 60, 210, 0.34));
+}
+
+.clear-stats strong {
+  color: #7cff5d;
+  font-size: clamp(18px, 2vw, 30px);
+  line-height: 1;
+  text-shadow:
+    0 0 8px rgba(124, 255, 93, 0.9),
+    0 0 20px rgba(124, 255, 93, 0.46);
+}
+
 #restartButton {
   position: relative;
   z-index: 1;
@@ -1137,6 +1212,162 @@ p {
   font-weight: 750;
   text-transform: uppercase;
   text-shadow: 0 0 10px rgba(255, 116, 232, 0.48);
+}
+
+.cinematic-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  overflow: hidden;
+  background: #050711;
+}
+
+.cinematic-overlay.hidden {
+  display: none;
+}
+
+.cinematic-overlay img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cinematic-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.05) 0,
+      rgba(255, 255, 255, 0.05) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.34) 66%, rgba(0, 0, 0, 0.62));
+  mix-blend-mode: screen;
+}
+
+.cinematic-name,
+.cinematic-dialogue {
+  position: absolute;
+  z-index: 1;
+  font-family: "Courier New", ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0;
+}
+
+.cinematic-name {
+  left: 7.5%;
+  bottom: 25.5%;
+  padding: 8px 18px;
+  border: 2px solid rgba(255, 87, 227, 0.82);
+  border-radius: 5px;
+  background: rgba(7, 10, 25, 0.88);
+  color: #ff74e8;
+  font-size: clamp(18px, 2.1vw, 34px);
+  font-weight: 950;
+  box-shadow:
+    inset 0 0 16px rgba(255, 87, 227, 0.2),
+    0 0 16px rgba(255, 87, 227, 0.46);
+  text-shadow:
+    0 0 8px rgba(255, 116, 232, 0.96),
+    0 0 24px rgba(255, 43, 192, 0.55);
+}
+
+.cinematic-dialogue {
+  left: 6%;
+  right: 6%;
+  bottom: 5.8%;
+  min-height: 16%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: clamp(12px, 1.8vw, 26px);
+  padding: clamp(14px, 1.8vw, 28px) clamp(16px, 2.2vw, 34px);
+  border: 2px solid rgba(89, 232, 255, 0.88);
+  border-radius: 8px;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.045) 0,
+      rgba(255, 255, 255, 0.045) 1px,
+      transparent 1px,
+      transparent 6px
+    ),
+    linear-gradient(180deg, rgba(7, 12, 30, 0.94), rgba(8, 4, 22, 0.93));
+  box-shadow:
+    inset 0 0 34px rgba(89, 232, 255, 0.18),
+    inset 0 0 88px rgba(255, 43, 192, 0.1),
+    0 0 18px rgba(89, 232, 255, 0.58),
+    0 0 46px rgba(255, 43, 192, 0.36);
+}
+
+.cinematic-dialogue::before,
+.cinematic-dialogue::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.cinematic-dialogue::before {
+  inset: 8px;
+  border: 1px solid rgba(255, 87, 227, 0.72);
+  border-radius: 5px;
+  box-shadow:
+    inset 0 0 16px rgba(255, 87, 227, 0.22),
+    0 0 16px rgba(255, 87, 227, 0.34);
+}
+
+.cinematic-dialogue::after {
+  inset: 16px;
+  border: 1px solid rgba(124, 255, 93, 0.36);
+  border-radius: 4px;
+  box-shadow: inset 0 0 18px rgba(124, 255, 93, 0.12);
+}
+
+.cinematic-dialogue p {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  color: rgba(255, 245, 255, 0.96);
+  font-size: clamp(16px, 1.75vw, 30px);
+  font-weight: 900;
+  line-height: 1.28;
+  text-shadow:
+    0 0 8px rgba(255, 245, 255, 0.54),
+    0 0 18px rgba(89, 232, 255, 0.32);
+}
+
+#cinematicContinueButton {
+  position: relative;
+  z-index: 1;
+  min-width: 128px;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 2px solid rgba(124, 255, 93, 0.88);
+  border-radius: 4px;
+  background: rgba(6, 18, 30, 0.88);
+  color: #7cff5d;
+  font-weight: 950;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow:
+    inset 0 0 18px rgba(124, 255, 93, 0.18),
+    0 0 16px rgba(124, 255, 93, 0.42);
+  text-shadow:
+    0 0 8px rgba(124, 255, 93, 0.95),
+    0 0 22px rgba(124, 255, 93, 0.5);
+}
+
+#cinematicContinueButton:hover,
+#cinematicContinueButton:focus-visible {
+  outline: 2px solid rgba(89, 232, 255, 0.8);
+  outline-offset: 4px;
+  color: #55e9ff;
+  border-color: rgba(89, 232, 255, 0.86);
 }
 
 @keyframes deathPanelPulse {

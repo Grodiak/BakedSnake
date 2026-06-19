@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Baked Snake Prototype</title>
-    <link rel="stylesheet" href="./styles.css?v=bite-level-label-v1">
+    <link rel="stylesheet" href="./styles.css?v=blotch-cinematic-v3">
   </head>
   <body>
     <main class="shell">
@@ -60,14 +60,30 @@
 
         <div class="death-overlay hidden" id="deathOverlay" aria-live="polite">
           <div class="death-panel">
-            <span class="death-kicker">Run Cooked</span>
+            <span class="death-kicker" id="deathKicker">Run Cooked</span>
             <strong class="death-score" id="deathScore">0</strong>
             <div class="death-stats">
               <span>High Score</span>
               <strong id="deathBest">0</strong>
             </div>
+            <div class="clear-stats hidden" id="clearStats">
+              <span>Best Streak</span>
+              <div>
+                <img id="clearStreakIcon" alt="">
+                <strong id="clearStreakValue">x1</strong>
+              </div>
+            </div>
             <button id="restartButton" type="button">Play Again</button>
-            <p>Press Space or tap Play Again</p>
+            <p id="deathPrompt">Press Space or tap Play Again</p>
+          </div>
+        </div>
+
+        <div class="cinematic-overlay hidden" id="cinematicOverlay" aria-live="polite">
+          <img src="./assets/lizard-basic.png?v=blotch-cinematic-v3" alt="">
+          <div class="cinematic-name">Blotch</div>
+          <div class="cinematic-dialogue">
+            <p>Heyyy! If it isn't my number one customer! Good to run into you.</p>
+            <button id="cinematicContinueButton" type="button">Continue</button>
           </div>
         </div>
 
@@ -100,6 +116,6 @@
       </section>
     </main>
 
-    <script src="./game.js?v=bite-level-label-v1"></script>
+    <script src="./game.js?v=blotch-cinematic-v3"></script>
   </body>
 </html>
