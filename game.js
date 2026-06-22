@@ -55,7 +55,10 @@ const clearStreakIconEl = document.querySelector("#clearStreakIcon");
 const clearStreakValueEl = document.querySelector("#clearStreakValue");
 const restartButton = document.querySelector("#restartButton");
 const cinematicOverlay = document.querySelector("#cinematicOverlay");
+const cinematicImage = document.querySelector("#cinematicImage");
+const cinematicLine = document.querySelector("#cinematicLine");
 const cinematicContinueButton = document.querySelector("#cinematicContinueButton");
+const screenWipe = document.querySelector("#screenWipe");
 const overlay = document.querySelector("#overlay");
 const overlayText = document.querySelector("#overlayText");
 const startButton = document.querySelector("#startButton");
@@ -73,8 +76,10 @@ const LEVEL_ONE_TARGET = 1000;
 const LEVEL_DURATION = 60;
 const MENU_MUSIC_SRC = "./assets/audio/menu-coin-clash.mp3";
 const GAME_MUSIC_SRC = "./assets/audio/coin-clash.mp3";
+const CINEMATIC_MUSIC_SRC = "./assets/audio/cinematics.mp3";
 const MENU_MUSIC_LOOP_START = 0;
 const GAME_MUSIC_LOOP_START = 51;
+const CINEMATIC_MUSIC_LOOP_START = 0;
 const MUSIC_VOLUME = 0.31;
 const MUSIC_NORMAL_RATE = 1;
 const MUSIC_SLOWMO_RATE = 0.8;
@@ -83,6 +88,8 @@ const MUSIC_SLOWMO_CUTOFF = 680;
 const PICKUP_SOUND_SRC = "./assets/audio/gather-point-regular.wav";
 const PICKUP_SOUND_VOLUME = 1;
 const BITE_SOUND_VOLUME = 0.198;
+const ARCADE_TEXT_SOUND_SRC = "./assets/audio/arcade-text.mp3";
+const ARCADE_TEXT_VOLUME = 0.36;
 const PICKUP_SOUND_DELAY = 35;
 const RED_X_SHOUT_SRC = "./assets/audio/red-x-shout.wav";
 const RED_X_SHOUT_VOLUME = 0.45;
@@ -118,6 +125,30 @@ const FLOOR_TILE_PATTERN_SIZE = 360;
 const ITEM_SPRITE_HEIGHT = 43;
 const MOUTH_PREP_DISTANCE = 96;
 const MOUTH_BITE_TIME = 0.18;
+const CINEMATIC_TYPE_MS = 38;
+const CINEMATIC_SENTENCE_PAUSE_MS = 440;
+const CINEMATIC_SCENES = [
+  {
+    image: "./assets/blotch-neutral-mcu.png?v=arcade-text-sfx-v1",
+    text: "Heyyy! If it isn't my number one customer! Good to run into you.",
+    framing: { zoom: 1.02, x: "50%", y: "50%" },
+  },
+  {
+    image: "./assets/blotch-bites-donut.png?v=arcade-text-sfx-v1",
+    text: "Word on the street is that you've been munching up product big time these past few days. Sounds like you've been hella hungry...",
+    framing: { zoom: 1, x: "50%", y: "50%" },
+  },
+  {
+    image: "./assets/blotch-holds-donut.png?v=arcade-text-sfx-v1",
+    text: "I'm no mathematician, but my numbers guy says you'd need some serious Bezos-level mulah to square up. And I mean no disrespect, but you don't look the part.",
+    framing: { zoom: 1.01, x: "50%", y: "50%" },
+  },
+  {
+    image: "./assets/blotch-accusing.png?v=arcade-text-sfx-v1",
+    text: "So now I'm gonna have to mess you up so other dipshit potheads like you don't come squirming around for freebies... It's go time!",
+    framing: { zoom: 1, x: "50%", y: "50%" },
+  },
+];
 const MAX_LEVEL = 4;
 const LEVELS = {
   1: {
@@ -288,6 +319,12 @@ const heroItemSpawnSounds = Array.from({ length: 2 }, () => {
   sound.volume = HERO_ITEM_SPAWN_VOLUME;
   return sound;
 });
+const arcadeTextSound = new Audio(ARCADE_TEXT_SOUND_SRC);
+arcadeTextSound.id = "arcadeTextSound";
+arcadeTextSound.preload = "auto";
+arcadeTextSound.loop = true;
+arcadeTextSound.volume = ARCADE_TEXT_VOLUME;
+document.body.appendChild(arcadeTextSound);
 let pickupSoundIndex = 0;
 let biteSoundIndex = 0;
 let deathBoomSoundIndex = 0;
@@ -325,11 +362,15 @@ function updateSoundMenu() {
 }
 
 function musicLoopStart() {
-  return musicMode === "game" ? GAME_MUSIC_LOOP_START : MENU_MUSIC_LOOP_START;
+  if (musicMode === "game") return GAME_MUSIC_LOOP_START;
+  if (musicMode === "cinematic") return CINEMATIC_MUSIC_LOOP_START;
+  return MENU_MUSIC_LOOP_START;
 }
 
 function musicSourceForMode(mode) {
-  return mode === "game" ? GAME_MUSIC_SRC : MENU_MUSIC_SRC;
+  if (mode === "game") return GAME_MUSIC_SRC;
+  if (mode === "cinematic") return CINEMATIC_MUSIC_SRC;
+  return MENU_MUSIC_SRC;
 }
 
 function switchMusicMode(mode) {
@@ -340,8 +381,9 @@ function switchMusicMode(mode) {
   const shouldResume = !music.paused && musicEnabled;
   music.pause();
   musicMode = mode;
+  music.dataset.mode = musicMode;
   musicNeedsCue = true;
-  music.loop = mode === "menu";
+  music.loop = mode !== "game";
   music.playbackRate = MUSIC_NORMAL_RATE;
   if (srcChanged) {
     music.src = nextSrc;
@@ -356,7 +398,7 @@ function switchMusicMode(mode) {
 }
 
 function cueMusicLoopPoint() {
-  if (musicMode === "menu") {
+  if (musicMode === "menu" || musicMode === "cinematic") {
     musicStatus = "cued";
     return;
   }
@@ -370,7 +412,7 @@ function cueMusicLoopPoint() {
 }
 
 function confirmMusicCue() {
-  if (musicMode === "menu") {
+  if (musicMode === "menu" || musicMode === "cinematic") {
     musicNeedsCue = false;
     return;
   }
@@ -475,6 +517,29 @@ function startMusic() {
   }
 }
 
+function startCinematicMusic() {
+  if (!musicEnabled) return;
+  switchMusicMode("cinematic");
+
+  if (!musicStarted) {
+    musicStarted = true;
+    musicNeedsCue = true;
+    music.load();
+    cueMusicLoopPoint();
+  }
+
+  music.muted = false;
+  music.volume = MUSIC_VOLUME;
+  music.playbackRate = MUSIC_NORMAL_RATE;
+
+  if (music.paused) {
+    playMusic();
+  } else {
+    confirmMusicCue();
+    musicStatus = "playing";
+  }
+}
+
 function resumeGameMusicFromInput() {
   if (!musicEnabled || musicMode !== "game" || !music.paused) return;
   startMusic();
@@ -493,6 +558,8 @@ function setMusicEnabled(enabled) {
 
   if (running) {
     startMusic();
+  } else if (!cinematicOverlay.classList.contains("hidden")) {
+    startCinematicMusic();
   } else {
     startMenuMusic();
   }
@@ -501,6 +568,9 @@ function setMusicEnabled(enabled) {
 function setSoundEnabled(enabled) {
   soundEnabled = enabled;
   updateSoundMenu();
+  if (!soundEnabled) {
+    stopArcadeTextSound();
+  }
 }
 
 function playSoundFromPool(sounds, index, volume, playbackRate = 1) {
@@ -519,6 +589,34 @@ function playBiteSound() {
   if (!soundEnabled) return;
 
   biteSoundIndex = playSoundFromPool(biteSounds, biteSoundIndex, BITE_SOUND_VOLUME);
+}
+
+function startArcadeTextSound() {
+  if (!soundEnabled || !cinematicOverlay || cinematicOverlay.classList.contains("hidden")) return;
+  arcadeTextSound.volume = ARCADE_TEXT_VOLUME;
+  arcadeTextSound.muted = false;
+  if (!arcadeTextSound.paused) {
+    arcadeTextSound.currentTime = 0;
+    return;
+  }
+  arcadeTextSound.currentTime = 0;
+  arcadeTextSound.play().catch(() => {});
+}
+
+function stopArcadeTextSound() {
+  arcadeTextSound.pause();
+  arcadeTextSound.muted = false;
+  arcadeTextSound.currentTime = 0;
+}
+
+function primeArcadeTextSound() {
+  if (!soundEnabled || !arcadeTextSound.paused) return;
+  arcadeTextSound.muted = true;
+  arcadeTextSound.volume = ARCADE_TEXT_VOLUME;
+  arcadeTextSound.currentTime = 0;
+  arcadeTextSound.play().catch(() => {
+    arcadeTextSound.muted = false;
+  });
 }
 
 function loadPickupSoundBuffer() {
@@ -765,7 +863,7 @@ function maintainMusicLoop() {
 }
 
 music.addEventListener("ended", () => {
-  if (musicMode === "menu") return;
+  if (musicMode === "menu" || musicMode === "cinematic") return;
 
   loopGameMusic();
 });
@@ -981,6 +1079,13 @@ let state;
 let lastTime = 0;
 let running = false;
 let briefingPending = false;
+let cinematicPending = false;
+let cinematicTypeTimer = undefined;
+let cinematicSceneIndex = 0;
+let cinematicTypedChars = 0;
+let cinematicSceneComplete = false;
+let cinematicMorphing = false;
+let screenWipeActive = false;
 let nextRunLevel = 1;
 let nextRunScore = 0;
 let best = Number(localStorage.getItem(STORAGE_KEY) || 0);
@@ -1043,6 +1148,7 @@ function startGame(level = nextRunLevel, carriedScore = nextRunScore) {
   state = newState(level, carriedScore);
   nextRunLevel = state.level;
   nextRunScore = state.score;
+  cinematicPending = false;
   const shouldBrief = state.level === 1;
   running = !shouldBrief;
   briefingPending = shouldBrief;
@@ -1056,6 +1162,10 @@ function startGame(level = nextRunLevel, carriedScore = nextRunScore) {
   overlay.classList.add("hidden");
   deathOverlay.classList.add("hidden");
   cinematicOverlay.classList.add("hidden");
+  screenWipe.classList.add("hidden");
+  screenWipe.classList.remove("enter", "exit");
+  screenWipeActive = false;
+  cinematicMorphing = false;
   briefingOverlay.classList.toggle("hidden", !shouldBrief);
   draw();
   if (shouldBrief) {
@@ -1093,14 +1203,14 @@ function finishRun({ cleared = false } = {}) {
   deathScoreEl.textContent = String(state.score);
   deathBestEl.textContent = String(best);
   deathKickerEl.textContent = cleared ? "Level Clear" : "Run Cooked";
-  restartButton.textContent = cleared ? "Next Level" : "Play Again";
-  deathPromptEl.textContent = cleared ? "Press Space or tap Next Level" : "Press Space or tap Play Again";
+  cinematicPending = cleared && state.level >= MAX_LEVEL;
+  restartButton.textContent = cinematicPending ? "Continue" : cleared ? "Next Level" : "Play Again";
+  deathPromptEl.textContent = cinematicPending
+    ? "Press Space or tap Continue"
+    : cleared
+      ? "Press Space or tap Next Level"
+      : "Press Space or tap Play Again";
   renderClearStats(cleared);
-  if (cleared && state.level >= MAX_LEVEL) {
-    playHeroItemSpawnSound();
-    showCinematic();
-    return;
-  }
   if (cleared) {
     playHeroItemSpawnSound();
   } else {
@@ -1112,14 +1222,18 @@ function finishRun({ cleared = false } = {}) {
 }
 
 function showCinematic() {
+  cinematicPending = false;
   briefingOverlay.classList.add("hidden");
   deathOverlay.classList.add("hidden");
   overlay.classList.add("hidden");
   cinematicOverlay.classList.remove("hidden");
-  cinematicContinueButton.focus({ preventScroll: true });
+  startCinematicMusic();
+  startCinematicScene(0);
 }
 
 function closeCinematic() {
+  stopCinematicTypewriter();
+  stopArcadeTextSound();
   cinematicOverlay.classList.add("hidden");
   overlay.classList.remove("hidden");
   nextRunLevel = 1;
@@ -1127,7 +1241,160 @@ function closeCinematic() {
   state = undefined;
   running = false;
   briefingPending = false;
+  cinematicPending = false;
   drawStartScreen();
+  startMenuMusic();
+}
+
+function stopCinematicTypewriter() {
+  if (cinematicTypeTimer) {
+    clearTimeout(cinematicTypeTimer);
+    cinematicTypeTimer = undefined;
+  }
+  stopArcadeTextSound();
+}
+
+function finishCinematicLine() {
+  stopCinematicTypewriter();
+  const scene = CINEMATIC_SCENES[cinematicSceneIndex];
+  cinematicLine.textContent = scene.text;
+  cinematicTypedChars = scene.text.length;
+  finishCinematicSceneBeat();
+}
+
+function startCinematicScene(sceneIndex) {
+  stopCinematicTypewriter();
+  cinematicOverlay.classList.remove("morphing");
+  cinematicMorphing = false;
+  cinematicSceneIndex = sceneIndex;
+  cinematicSceneComplete = false;
+  cinematicTypedChars = 0;
+  cinematicLine.textContent = "";
+  cinematicContinueButton.classList.remove("ready");
+  cinematicContinueButton.focus({ preventScroll: true });
+  const scene = CINEMATIC_SCENES[cinematicSceneIndex];
+  cinematicImage.src = scene.image;
+  cinematicImage.style.setProperty("--cinematic-zoom", String(scene.framing?.zoom || 1));
+  cinematicImage.style.setProperty("--cinematic-x", scene.framing?.x || "50%");
+  cinematicImage.style.setProperty("--cinematic-y", scene.framing?.y || "50%");
+  cinematicLine.dataset.text = scene.text;
+  startArcadeTextSound();
+  typeNextCinematicCharacter();
+}
+
+function morphToCinematicScene(sceneIndex) {
+  if (cinematicMorphing) return;
+  cinematicMorphing = true;
+  stopCinematicTypewriter();
+  stopArcadeTextSound();
+  cinematicLine.textContent = "";
+  cinematicContinueButton.classList.remove("ready");
+  cinematicOverlay.classList.remove("morphing");
+  cinematicOverlay.offsetHeight;
+  cinematicOverlay.classList.add("morphing");
+
+  window.setTimeout(() => {
+    const scene = CINEMATIC_SCENES[sceneIndex];
+    cinematicSceneIndex = sceneIndex;
+    cinematicSceneComplete = false;
+    cinematicTypedChars = 0;
+    cinematicImage.src = scene.image;
+    cinematicImage.style.setProperty("--cinematic-zoom", String(scene.framing?.zoom || 1));
+    cinematicImage.style.setProperty("--cinematic-x", scene.framing?.x || "50%");
+    cinematicImage.style.setProperty("--cinematic-y", scene.framing?.y || "50%");
+    cinematicLine.dataset.text = scene.text;
+  }, 80);
+
+  window.setTimeout(() => {
+    cinematicOverlay.classList.remove("morphing");
+    cinematicMorphing = false;
+    startArcadeTextSound();
+    typeNextCinematicCharacter();
+  }, 190);
+}
+
+function typeNextCinematicCharacter() {
+  const scene = CINEMATIC_SCENES[cinematicSceneIndex];
+  if (cinematicTypedChars === 0) {
+    startArcadeTextSound();
+  }
+  cinematicTypedChars += 1;
+  cinematicLine.textContent = scene.text.slice(0, cinematicTypedChars);
+  const currentChar = scene.text[cinematicTypedChars - 1];
+  const nextChar = scene.text[cinematicTypedChars];
+  const isSentenceEnd = /[!?]/.test(currentChar) || (currentChar === "." && nextChar !== ".");
+  if (isSentenceEnd) {
+    stopArcadeTextSound();
+  }
+  if (cinematicTypedChars >= scene.text.length) {
+    const finishDelay = isSentenceEnd ? CINEMATIC_SENTENCE_PAUSE_MS : CINEMATIC_TYPE_MS;
+    cinematicTypeTimer = setTimeout(finishCinematicSceneBeat, finishDelay);
+    return;
+  }
+
+  const delay = isSentenceEnd ? CINEMATIC_SENTENCE_PAUSE_MS : CINEMATIC_TYPE_MS;
+  cinematicTypeTimer = setTimeout(() => {
+    if (isSentenceEnd) {
+      startArcadeTextSound();
+    }
+    typeNextCinematicCharacter();
+  }, delay);
+}
+
+function finishCinematicSceneBeat() {
+  stopCinematicTypewriter();
+  stopArcadeTextSound();
+  cinematicSceneComplete = true;
+  cinematicContinueButton.classList.add("ready");
+  cinematicContinueButton.focus({ preventScroll: true });
+}
+
+function runScreenWipe(swapScene) {
+  if (screenWipeActive) return Promise.resolve();
+  screenWipeActive = true;
+  screenWipe.classList.remove("hidden", "enter", "exit");
+  screenWipe.offsetHeight;
+  screenWipe.classList.add("enter");
+
+  return new Promise((resolve) => {
+    window.setTimeout(() => {
+      swapScene();
+      screenWipe.classList.remove("enter");
+      screenWipe.offsetHeight;
+      screenWipe.classList.add("exit");
+    }, 620);
+
+    window.setTimeout(() => {
+      screenWipe.classList.remove("exit");
+      screenWipe.classList.add("hidden");
+      screenWipeActive = false;
+      resolve();
+    }, 1400);
+  });
+}
+
+function advanceCinematic() {
+  if (screenWipeActive || cinematicMorphing) return;
+  if (cinematicSceneComplete && cinematicSceneIndex < CINEMATIC_SCENES.length - 1) {
+    primeArcadeTextSound();
+    morphToCinematicScene(cinematicSceneIndex + 1);
+    return;
+  }
+  if (!cinematicContinueButton.classList.contains("ready")) {
+    finishCinematicLine();
+    return;
+  }
+  runScreenWipe(closeCinematic);
+}
+
+function advanceFromRecap() {
+  if (screenWipeActive) return;
+  if (cinematicPending) {
+    primeArcadeTextSound();
+    runScreenWipe(showCinematic);
+    return;
+  }
+  startGame();
 }
 
 function gameOver() {
@@ -2513,7 +2780,7 @@ window.addEventListener("keydown", (event) => {
   if (!cinematicOverlay.classList.contains("hidden")) {
     if (event.code === "Space" || event.code === "Enter") {
       event.preventDefault();
-      closeCinematic();
+      advanceCinematic();
     }
     return;
   }
@@ -2525,7 +2792,7 @@ window.addEventListener("keydown", (event) => {
     if (briefingPending) {
       beginBriefedGame();
     } else if (!running) {
-      startGame();
+      advanceFromRecap();
     }
     return;
   }
@@ -2611,8 +2878,8 @@ musicOnButton.addEventListener("click", () => setMusicEnabled(true));
 musicOffButton.addEventListener("click", () => setMusicEnabled(false));
 soundOnButton.addEventListener("click", () => setSoundEnabled(true));
 soundOffButton.addEventListener("click", () => setSoundEnabled(false));
-restartButton.addEventListener("click", () => startGame());
-cinematicContinueButton.addEventListener("click", closeCinematic);
+restartButton.addEventListener("click", advanceFromRecap);
+cinematicContinueButton.addEventListener("click", advanceCinematic);
 if (DEBUG_DEATH) {
   window.addEventListener("keydown", (event) => {
     if (event.key.toLowerCase() === "k" && running) {

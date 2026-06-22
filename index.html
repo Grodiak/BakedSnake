@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Baked Snake Prototype</title>
-    <link rel="stylesheet" href="./styles.css?v=blotch-cinematic-v3">
+    <link rel="stylesheet" href="./styles.css?v=arcade-text-sfx-v1">
   </head>
   <body>
     <main class="shell">
@@ -79,12 +79,20 @@
         </div>
 
         <div class="cinematic-overlay hidden" id="cinematicOverlay" aria-live="polite">
-          <img src="./assets/lizard-basic.png?v=blotch-cinematic-v3" alt="">
+          <div class="cinematic-image-frame">
+            <img id="cinematicImage" src="./assets/blotch-neutral-mcu.png?v=arcade-text-sfx-v1" alt="">
+          </div>
           <div class="cinematic-name">Blotch</div>
           <div class="cinematic-dialogue">
-            <p>Heyyy! If it isn't my number one customer! Good to run into you.</p>
+            <p id="cinematicLine" data-text="Heyyy! If it isn't my number one customer! Good to run into you."></p>
             <button id="cinematicContinueButton" type="button">Continue</button>
           </div>
+        </div>
+
+        <div class="screen-wipe hidden" id="screenWipe" aria-hidden="true">
+          <div class="screen-wipe__panel screen-wipe__panel--top"></div>
+          <div class="screen-wipe__panel screen-wipe__panel--bottom"></div>
+          <div class="screen-wipe__slash"></div>
         </div>
 
         <div class="overlay title-screen" id="overlay">
@@ -116,6 +124,6 @@
       </section>
     </main>
 
-    <script src="./game.js?v=blotch-cinematic-v3"></script>
+    <script src="./game.js?v=arcade-text-sfx-v1"></script>
   </body>
 </html>
