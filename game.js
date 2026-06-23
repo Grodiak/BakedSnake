@@ -153,7 +153,7 @@ const BOSS_PHASE_TWO_SPEED = 218;
 const BOSS_PHASE_THREE_SPEED = 330;
 const BOSS_PHASE_TWO_WINDUP = 0.68;
 const BOSS_PHASE_THREE_WINDUP = 0.48;
-const BOSS_SHOT_DAMAGE = 0.07;
+const BOSS_SHOT_DAMAGE = 0.085;
 const BOSS_TRACKING_LEAD = 68;
 const BOSS_TRACKING_JITTER = 74;
 const BOSS_LASER_HALF_WIDTH = 7;
@@ -3579,6 +3579,7 @@ function renderLives(lives) {
   for (let i = 0; i < STARTING_LIVES; i += 1) {
     const heart = document.createElement("span");
     heart.className = `life-heart${i >= clampedLives ? " empty" : ""}`;
+    heart.textContent = "♥";
     heart.setAttribute("aria-hidden", "true");
     livesEl.appendChild(heart);
   }

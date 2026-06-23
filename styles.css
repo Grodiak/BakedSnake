@@ -606,45 +606,26 @@ canvas {
 }
 
 .life-heart {
-  width: clamp(12px, 1.05vw, 20px);
-  height: clamp(12px, 1.05vw, 20px);
   position: relative;
-  transform: rotate(-45deg);
-  background: #ff4d7d;
-  border: 1px solid rgba(255, 213, 236, 0.82);
-  box-shadow:
-    0 0 7px rgba(255, 77, 125, 0.92),
-    0 0 16px rgba(255, 62, 219, 0.38);
-}
-
-.life-heart::before,
-.life-heart::after {
-  content: "";
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: inherit;
-  border: inherit;
-  box-shadow: inherit;
-}
-
-.life-heart::before {
-  top: -50%;
-  left: -1px;
-}
-
-.life-heart::after {
-  top: -1px;
-  right: -50%;
+  display: inline-block;
+  width: clamp(14px, 1.15vw, 22px);
+  color: #ff4d7d;
+  font-family: "Courier New", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: clamp(16px, 1.35vw, 25px);
+  font-weight: 950;
+  line-height: 0.8;
+  text-align: center;
+  text-shadow:
+    0 0 5px rgba(255, 222, 239, 0.9),
+    0 0 11px rgba(255, 77, 125, 0.92),
+    0 0 20px rgba(255, 62, 219, 0.42);
 }
 
 .life-heart.empty {
-  background: rgba(32, 16, 38, 0.68);
-  border-color: rgba(244, 160, 255, 0.42);
-  box-shadow:
-    inset 0 0 8px rgba(0, 0, 0, 0.74),
-    0 0 8px rgba(244, 160, 255, 0.18);
+  color: rgba(244, 160, 255, 0.34);
+  text-shadow:
+    0 0 5px rgba(244, 160, 255, 0.2),
+    0 0 12px rgba(0, 0, 0, 0.7);
 }
 
 .level-progress {
