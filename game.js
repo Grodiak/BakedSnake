@@ -77,7 +77,7 @@ const WORLD = { w: 1290, h: 600 };
 const STORAGE_KEY = "baked-snake-best";
 const SCORE_SCALE = 100;
 const LEVEL_ONE_TARGET = 1000;
-const LEVEL_DURATION = 60;
+const LEVEL_DURATION = 45;
 const MENU_MUSIC_SRC = "./assets/audio/menu-coin-clash.mp3";
 const GAME_MUSIC_SRC = "./assets/audio/coin-clash.mp3";
 const BOSS_MUSIC_SRC = "./assets/audio/blotch-on-sight.mp3";
@@ -163,6 +163,8 @@ const BOSS_ROTATING_BEAM_DELAY = 2.85;
 const BOSS_ROTATING_BEAM_WARNING = 1.8;
 const BOSS_ROTATING_BEAM_SPEED = 0.28;
 const BOSS_CHARGE_CUTOFF_BEFORE_FIRE = 0.08;
+const BOSS_EXPLOSION_TIME = 1.65;
+const BOSS_MESSAGE_TIME = 3.2;
 const STARTING_LIVES = 3;
 const STAGE_INVULNERABLE_TIME = 3;
 const CINEMATIC_TYPE_MS = 38;
@@ -1338,9 +1340,19 @@ function createBossState(levelConfig) {
     hasCrossBeam: false,
     crossCrackleStarted: false,
     chargeCutoffDone: false,
+    announcedPhase: 1,
+    message: null,
+    messageTime: 0,
     shots: 0,
     defeated: false,
   };
+}
+
+function queueBossMessage(kind, lines, duration = BOSS_MESSAGE_TIME) {
+  const boss = state?.boss;
+  if (!boss) return;
+  boss.message = { kind, lines };
+  boss.messageTime = duration;
 }
 
 function randomBossTarget(config = state.levelConfig.boss) {
@@ -1810,6 +1822,7 @@ function updateLevelTimer(dt) {
 function updateBoss(dt) {
   const boss = state.boss;
   if (!boss || state.levelCleared) return;
+  boss.messageTime = Math.max(0, boss.messageTime - dt);
 
   if (boss.phase === "roam") {
     const dx = boss.targetX - boss.x;
@@ -1860,6 +1873,17 @@ function updateBoss(dt) {
       boss.shots += 1;
       boss.gas = Math.max(0, boss.gas - BOSS_SHOT_DAMAGE);
       boss.defeated = boss.gas <= 0;
+      if (boss.announcedPhase < 2 && bossIsPhaseTwo(boss)) {
+        boss.announcedPhase = 2;
+        queueBossMessage("blotch", ["I'll mess you up!"]);
+      }
+      if (boss.announcedPhase < 3 && bossIsPhaseThree(boss)) {
+        boss.announcedPhase = 3;
+        queueBossMessage("warning", [
+          "Warning! Overheating possible.",
+          "Shut up, stupid machine! Override!",
+        ], 4.4);
+      }
       state.screenPulse = Math.max(state.screenPulse, 0.8);
       playBlotchFireSound();
       startBlotchBeamCrackleSound();
@@ -1877,7 +1901,14 @@ function updateBoss(dt) {
     if (boss.phaseTime <= 0) {
       if (boss.defeated) {
         stopBlotchBeamCrackleSounds();
-        levelComplete();
+        boss.phase = "exploding";
+        boss.phaseTime = BOSS_EXPLOSION_TIME;
+        boss.hasCrossBeam = false;
+        boss.crossY = null;
+        boss.message = null;
+        boss.messageTime = 0;
+        state.screenPulse = Math.max(state.screenPulse, 1.5);
+        playDeathBoomSound();
         return;
       }
       boss.phase = "cooldown";
@@ -1896,6 +1927,14 @@ function updateBoss(dt) {
       boss.phase = "roam";
       boss.targetX = randomBossTarget();
       boss.phaseTime = nextBossAttackDelay();
+    }
+  }
+
+  if (boss.phase === "exploding") {
+    boss.phaseTime -= dt;
+    state.screenPulse = Math.max(state.screenPulse, 1.4);
+    if (boss.phaseTime <= 0) {
+      levelComplete();
     }
   }
 }
@@ -2177,10 +2216,29 @@ function drawBossCrossPoint(x, y, intensity) {
 
 function drawBossAtmosphere() {
   const boss = state.boss;
-  if (!boss || (boss.phase !== "windup" && boss.phase !== "attack")) return;
+  if (!boss || (boss.phase !== "windup" && boss.phase !== "attack" && boss.phase !== "exploding")) return;
 
   ctx.save();
   ctx.globalCompositeOperation = "screen";
+
+  if (boss.phase === "exploding") {
+    const progress = clamp(1 - boss.phaseTime / BOSS_EXPLOSION_TIME, 0, 1);
+    const flash = state.time % 0.1 < 0.05;
+    ctx.globalAlpha = flash ? 0.48 : 0.22;
+    ctx.fillStyle = flash ? "#fff2a8" : "#ff2a8a";
+    ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+
+    const blast = ctx.createRadialGradient(boss.x, boss.y - 18, 20, boss.x, boss.y - 18, 160 + progress * 360);
+    blast.addColorStop(0, `rgba(255, 255, 255, ${0.65 * (1 - progress * 0.35)})`);
+    blast.addColorStop(0.18, `rgba(255, 242, 168, ${0.48 * (1 - progress * 0.25)})`);
+    blast.addColorStop(0.42, `rgba(255, 42, 138, ${0.32 * (1 - progress)})`);
+    blast.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = blast;
+    ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+    ctx.restore();
+    return;
+  }
 
   if (boss.phase === "windup") {
     const progress = bossWindupProgress(boss);
@@ -2447,11 +2505,16 @@ function drawBoss() {
   if (!boss) return;
 
   const pulse = 0.5 + Math.sin(state.time * 5.4) * 0.5;
+  const exploding = boss.phase === "exploding";
+  const explodeProgress = exploding ? clamp(1 - boss.phaseTime / BOSS_EXPLOSION_TIME, 0, 1) : 0;
+  const explodeFlash = exploding && state.time % 0.085 < 0.042;
   const attackGlow = boss.phase === "windup"
     ? 0.55 + bossWindupProgress(boss) * 0.7
     : boss.phase === "attack"
       ? 1
-      : 0;
+      : exploding
+        ? 1.35
+        : 0;
   const x = boss.x;
   const y = boss.y;
   const tip = bossCannonTip(boss);
@@ -2471,10 +2534,15 @@ function drawBoss() {
     ctx.save();
     ctx.globalCompositeOperation = "source-over";
     ctx.translate(x, y);
+    if (exploding) {
+      const jitter = 5 + explodeProgress * 10;
+      ctx.translate((Math.random() - 0.5) * jitter, (Math.random() - 0.5) * jitter);
+      ctx.scale(1 + explodeProgress * 0.12, 1 + explodeProgress * 0.12);
+    }
     ctx.scale(direction === 1 ? -1 : 1, 1);
-    ctx.shadowColor = attackGlow > 0 ? "#55e9ff" : "rgba(255, 87, 227, 0.42)";
-    ctx.shadowBlur = attackGlow > 0 ? 16 + attackGlow * 26 : 7 + pulse * 5;
-    ctx.globalAlpha = 1;
+    ctx.shadowColor = exploding ? (explodeFlash ? "#fff2a8" : "#ff2a8a") : attackGlow > 0 ? "#55e9ff" : "rgba(255, 87, 227, 0.42)";
+    ctx.shadowBlur = exploding ? 34 + explodeProgress * 48 : attackGlow > 0 ? 16 + attackGlow * 26 : 7 + pulse * 5;
+    ctx.globalAlpha = exploding && !explodeFlash ? 0.72 : 1;
     ctx.drawImage(
       bossImage,
       -BOSS_SPRITE_SIZE / 2,
@@ -2482,6 +2550,11 @@ function drawBoss() {
       BOSS_SPRITE_SIZE,
       BOSS_SPRITE_SIZE
     );
+    if (exploding && explodeFlash) {
+      ctx.globalCompositeOperation = "screen";
+      ctx.fillStyle = `rgba(255, 242, 168, ${0.42 + explodeProgress * 0.28})`;
+      ctx.fillRect(-BOSS_SPRITE_SIZE / 2, -BOSS_SPRITE_SIZE / 2, BOSS_SPRITE_SIZE, BOSS_SPRITE_SIZE);
+    }
     ctx.restore();
   } else {
     ctx.save();
@@ -2513,6 +2586,91 @@ function drawBoss() {
     ctx.fill();
   }
 
+  if (exploding) {
+    drawBossExplosion(boss, explodeProgress);
+  } else {
+    drawBossMessage(boss);
+  }
+
+  ctx.restore();
+}
+
+function drawBossExplosion(boss, progress) {
+  const pulse = 0.5 + Math.sin(state.time * 42) * 0.5;
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  ctx.lineCap = "round";
+  for (let i = 0; i < 3; i += 1) {
+    const radius = 36 + progress * (150 + i * 58) + i * 22;
+    ctx.shadowColor = i % 2 ? "#ff2a8a" : "#fff2a8";
+    ctx.shadowBlur = 24 + pulse * 24;
+    ctx.strokeStyle = i % 2
+      ? `rgba(255, 42, 138, ${0.46 * (1 - progress)})`
+      : `rgba(255, 242, 168, ${0.54 * (1 - progress * 0.72)})`;
+    ctx.lineWidth = 4 + i * 2;
+    ctx.beginPath();
+    ctx.arc(boss.x, boss.y - 20, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  for (let i = 0; i < 22; i += 1) {
+    const angle = i * 2.399 + state.time * 0.8;
+    const distance = 28 + progress * (90 + (i % 5) * 30);
+    const x = boss.x + Math.cos(angle) * distance;
+    const y = boss.y - 20 + Math.sin(angle) * distance * 0.66;
+    ctx.fillStyle = i % 3 === 0 ? "#fff2a8" : i % 3 === 1 ? "#55e9ff" : "#ff2a8a";
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.arc(x, y, 2.5 + (i % 4) + pulse * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBossMessage(boss) {
+  if (!boss.message || boss.messageTime <= 0) return;
+
+  const lines = boss.message.lines;
+  const isWarning = boss.message.kind === "warning";
+  const width = isWarning ? 430 : 210;
+  const lineHeight = 18;
+  const height = 36 + lines.length * lineHeight;
+  const side = boss.x < WORLD.w * 0.58 ? 1 : -1;
+  const x = clamp(boss.x + side * 132, 20, WORLD.w - width - 20);
+  const y = clamp(boss.y - 178, 28, WORLD.h - height - 24);
+  const alpha = clamp(boss.messageTime / 0.25, 0, 1);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = isWarning ? "rgba(35, 2, 12, 0.88)" : "rgba(5, 12, 24, 0.9)";
+  ctx.strokeStyle = isWarning ? "rgba(255, 42, 80, 0.92)" : "rgba(255, 242, 168, 0.92)";
+  ctx.shadowColor = isWarning ? "#ff2a50" : "#fff2a8";
+  ctx.shadowBlur = 16;
+  ctx.lineWidth = 3;
+  roundedRectPath(ctx, x, y, width, height, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.beginPath();
+  const tailX = side > 0 ? x + 22 : x + width - 22;
+  ctx.moveTo(tailX, y + height - 3);
+  ctx.lineTo(tailX + side * -28, y + height + 22);
+  ctx.lineTo(tailX + side * 20, y + height - 3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.shadowBlur = 8;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.font = "950 16px 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace";
+  for (let i = 0; i < lines.length; i += 1) {
+    ctx.fillStyle = isWarning && i === 0 ? "#ff405f" : isWarning ? "#fff2a8" : "#fff2a8";
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.fillText(lines[i], x + 18, y + 24 + i * lineHeight);
+  }
   ctx.restore();
 }
 
@@ -3620,7 +3778,7 @@ function currentInfluence() {
 function updateFrameGlow() {
   const influence = Math.max(currentInfluence(), state.influenceMemory);
   const bossBackdropPulse = isBossLevel()
-    ? 0.2 + (Math.sin(state.time * 1.15) * 0.5 + 0.5) * 0.18
+    ? 0.38 + (Math.sin(state.time * 1.28) * 0.5 + 0.5) * 0.34
     : 0;
   const visualInfluence = Math.max(influence, bossBackdropPulse);
   const slowMoFocus = state.slowMo > 0 ? clamp(state.slowMo / 0.55, 0, 1) : 0;
@@ -3680,6 +3838,21 @@ function moveToward(value, target, amount) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function roundedRectPath(context, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.lineTo(x + width - r, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + r);
+  context.lineTo(x + width, y + height - r);
+  context.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  context.lineTo(x + r, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - r);
+  context.lineTo(x, y + r);
+  context.quadraticCurveTo(x, y, x + r, y);
+  context.closePath();
 }
 
 function hexToRgba(hex, alpha) {
