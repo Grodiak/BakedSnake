@@ -165,6 +165,8 @@ const BOSS_ROTATING_BEAM_SPEED = 0.28;
 const BOSS_CHARGE_CUTOFF_BEFORE_FIRE = 0.08;
 const BOSS_EXPLOSION_TIME = 1.65;
 const BOSS_MESSAGE_TIME = 3.2;
+const BOSS_RANDOM_BARK_MIN = 5.8;
+const BOSS_RANDOM_BARK_MAX = 10.5;
 const STARTING_LIVES = 3;
 const STAGE_INVULNERABLE_TIME = 3;
 const CINEMATIC_TYPE_MS = 38;
@@ -190,6 +192,14 @@ const CINEMATIC_SCENES = [
     text: "So now I'm gonna have to mess you up so other dipshit potheads like you don't come squirming around for freebies... It's go time!",
     framing: { zoom: 1, x: "50%", y: "50%" },
   },
+];
+const BOSS_RANDOM_BARKS = [
+  "You can slither, but you can't hide!",
+  "Stay still you piece of shit!",
+  "Aaaaaah!",
+  "Say hello to my big-ass friend!",
+  "Nobody messes with the BLOTCH!",
+  "You've eaten your last gummy!",
 ];
 const MAX_LEVEL = 5;
 const LEVELS = {
@@ -1343,9 +1353,14 @@ function createBossState(levelConfig) {
     announcedPhase: 1,
     message: null,
     messageTime: 0,
+    barkTimer: nextBossBarkDelay(),
     shots: 0,
     defeated: false,
   };
+}
+
+function nextBossBarkDelay() {
+  return BOSS_RANDOM_BARK_MIN + Math.random() * (BOSS_RANDOM_BARK_MAX - BOSS_RANDOM_BARK_MIN);
 }
 
 function queueBossMessage(kind, lines, duration = BOSS_MESSAGE_TIME) {
@@ -1353,6 +1368,17 @@ function queueBossMessage(kind, lines, duration = BOSS_MESSAGE_TIME) {
   if (!boss) return;
   boss.message = { kind, lines };
   boss.messageTime = duration;
+}
+
+function maybeTriggerBossBark(boss, dt) {
+  if (!boss || boss.phase === "exploding" || boss.defeated) return;
+  if (boss.messageTime > 0.15) return;
+  boss.barkTimer -= dt;
+  if (boss.barkTimer > 0) return;
+
+  const bark = BOSS_RANDOM_BARKS[Math.floor(Math.random() * BOSS_RANDOM_BARKS.length)];
+  queueBossMessage("blotch", [bark], 2.7);
+  boss.barkTimer = nextBossBarkDelay();
 }
 
 function randomBossTarget(config = state.levelConfig.boss) {
@@ -1504,9 +1530,10 @@ function finishRun({ cleared = false } = {}) {
   titleBestEl.textContent = String(best);
   deathScoreEl.textContent = String(state.score);
   deathBestEl.textContent = String(best);
-  deathKickerEl.textContent = cleared ? "Level Clear" : canRetryLevel ? "Life Lost" : "Run Cooked";
   cinematicPending = cleared && state.level === CINEMATIC_TRIGGER_LEVEL;
   const finalClear = cleared && state.level >= MAX_LEVEL;
+  deathKickerEl.textContent = finalClear ? "Snake City Complete" : cleared ? "Level Clear" : canRetryLevel ? "Life Lost" : "Run Cooked";
+  deathOverlay.classList.toggle("city-complete", finalClear);
   restartButton.textContent = cinematicPending
     ? "Continue"
     : canRetryLevel
@@ -1823,6 +1850,7 @@ function updateBoss(dt) {
   const boss = state.boss;
   if (!boss || state.levelCleared) return;
   boss.messageTime = Math.max(0, boss.messageTime - dt);
+  maybeTriggerBossBark(boss, dt);
 
   if (boss.phase === "roam") {
     const dx = boss.targetX - boss.x;
@@ -2538,6 +2566,9 @@ function drawBoss() {
       const jitter = 5 + explodeProgress * 10;
       ctx.translate((Math.random() - 0.5) * jitter, (Math.random() - 0.5) * jitter);
       ctx.scale(1 + explodeProgress * 0.12, 1 + explodeProgress * 0.12);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, BOSS_SPRITE_SIZE * 0.52, BOSS_SPRITE_SIZE * 0.46, 0, 0, Math.PI * 2);
+      ctx.clip();
     }
     ctx.scale(direction === 1 ? -1 : 1, 1);
     ctx.shadowColor = exploding ? (explodeFlash ? "#fff2a8" : "#ff2a8a") : attackGlow > 0 ? "#55e9ff" : "rgba(255, 87, 227, 0.42)";
@@ -2552,8 +2583,12 @@ function drawBoss() {
     );
     if (exploding && explodeFlash) {
       ctx.globalCompositeOperation = "screen";
-      ctx.fillStyle = `rgba(255, 242, 168, ${0.42 + explodeProgress * 0.28})`;
-      ctx.fillRect(-BOSS_SPRITE_SIZE / 2, -BOSS_SPRITE_SIZE / 2, BOSS_SPRITE_SIZE, BOSS_SPRITE_SIZE);
+      const flash = ctx.createRadialGradient(0, -8, 8, 0, -8, BOSS_SPRITE_SIZE * 0.58);
+      flash.addColorStop(0, `rgba(255, 255, 255, ${0.46 + explodeProgress * 0.28})`);
+      flash.addColorStop(0.42, `rgba(255, 242, 168, ${0.32 + explodeProgress * 0.2})`);
+      flash.addColorStop(1, "rgba(255, 42, 138, 0)");
+      ctx.fillStyle = flash;
+      ctx.fillRect(-BOSS_SPRITE_SIZE * 0.6, -BOSS_SPRITE_SIZE * 0.55, BOSS_SPRITE_SIZE * 1.2, BOSS_SPRITE_SIZE * 1.1);
     }
     ctx.restore();
   } else {
