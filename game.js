@@ -169,6 +169,8 @@ const BOSS_ROTATING_BEAM_WARNING = 1.8;
 const BOSS_ROTATING_BEAM_SPEED = 0.28;
 const BOSS_CHARGE_CUTOFF_BEFORE_FIRE = 0.08;
 const BOSS_EXPLOSION_TIME = 1.65;
+const BOSS_DEFEAT_BEAT_TIME = 3.55;
+const BOSS_DEFEAT_WARNING_TIME = 1.75;
 const BOSS_MESSAGE_TIME = 3.2;
 const BOSS_RANDOM_BARK_MIN = 5.8;
 const BOSS_RANDOM_BARK_MAX = 10.5;
@@ -1238,7 +1240,7 @@ const itemTypes = [
       s.effects.stim += 0.9;
       s.effects.jitter += 0.95;
       s.effects.snap += 0.72;
-      s.speedBoost += 190;
+      s.speedBoost += 145;
       s.screenPulse = 1.5;
     },
   },
@@ -1447,6 +1449,7 @@ function createBossState(levelConfig, carriedLives = STARTING_LIVES) {
     chargeCutoffDone: false,
     announcedPhase: 1,
     introFollowupPending: intro.followup.length > 0,
+    meltdownLineShown: false,
     message: { kind: "blotch", lines: intro.lines },
     messageTime: intro.duration,
     barkTimer: nextBossBarkDelay(),
@@ -2073,14 +2076,14 @@ function updateBoss(dt) {
     if (boss.phaseTime <= 0) {
       if (boss.defeated) {
         stopBlotchBeamCrackleSounds();
-        boss.phase = "exploding";
-        boss.phaseTime = BOSS_EXPLOSION_TIME;
+        boss.phase = "meltdown";
+        boss.phaseTime = BOSS_DEFEAT_BEAT_TIME;
         boss.hasCrossBeam = false;
         boss.crossY = null;
-        boss.message = null;
-        boss.messageTime = 0;
-        state.screenPulse = Math.max(state.screenPulse, 1.5);
-        playDeathBoomSound();
+        boss.crossCrackleStarted = false;
+        boss.meltdownLineShown = false;
+        queueBossMessage("warning", ["Overheating critical!", "Core meltdown imminent!"], BOSS_DEFEAT_WARNING_TIME);
+        state.screenPulse = Math.max(state.screenPulse, 1.25);
         return;
       }
       boss.phase = "cooldown";
@@ -2100,6 +2103,25 @@ function updateBoss(dt) {
       boss.targetX = randomBossTarget();
       boss.phaseTime = nextBossAttackDelay();
     }
+  }
+
+  if (boss.phase === "meltdown") {
+    boss.phaseTime -= dt;
+    state.screenPulse = Math.max(state.screenPulse, 1.2);
+    const elapsed = BOSS_DEFEAT_BEAT_TIME - boss.phaseTime;
+    if (!boss.meltdownLineShown && elapsed >= BOSS_DEFEAT_WARNING_TIME) {
+      boss.meltdownLineShown = true;
+      queueBossMessage("blotch", ["AAAAAAHhhh Shiiiiii..."], BOSS_DEFEAT_BEAT_TIME - elapsed);
+    }
+    if (boss.phaseTime <= 0) {
+      boss.phase = "exploding";
+      boss.phaseTime = BOSS_EXPLOSION_TIME;
+      boss.message = null;
+      boss.messageTime = 0;
+      state.screenPulse = Math.max(state.screenPulse, 1.5);
+      playDeathBoomSound();
+    }
+    return;
   }
 
   if (boss.phase === "exploding") {
@@ -2626,6 +2648,7 @@ function drawBossRotatingBeam(x, y, angle) {
 
   const length = Math.hypot(WORLD.w, WORLD.h) * 0.86;
   const pulse = 0.5 + Math.sin(state.time * 20) * 0.5;
+  const overload = 0.5 + Math.sin(state.time * 37) * 0.5;
   const drawRotatingPath = (offset = 0) => {
     const a = angle + offset;
     const dx = Math.cos(a) * length;
@@ -2640,35 +2663,59 @@ function drawBossRotatingBeam(x, y, angle) {
   ctx.lineCap = "round";
 
   for (const offset of [0, Math.PI * 0.5]) {
-    ctx.shadowColor = "#75ff66";
-    ctx.shadowBlur = 42 + pulse * 16;
+    ctx.shadowColor = "#ff2aff";
+    ctx.shadowBlur = 58 + pulse * 24;
     drawRotatingPath(offset);
-    ctx.strokeStyle = "rgba(117, 255, 102, 0.24)";
-    ctx.lineWidth = 28 + pulse * 3;
+    ctx.strokeStyle = `rgba(255, 42, 255, ${0.28 + overload * 0.12})`;
+    ctx.lineWidth = 36 + pulse * 8;
+    ctx.stroke();
+
+    ctx.shadowColor = "#55e9ff";
+    ctx.shadowBlur = 36 + overload * 12;
+    drawRotatingPath(offset);
+    ctx.strokeStyle = `rgba(85, 233, 255, ${0.42 + pulse * 0.18})`;
+    ctx.lineWidth = 18 + overload * 4;
     ctx.stroke();
 
     ctx.shadowColor = "#ffef5a";
     ctx.shadowBlur = 28;
     drawRotatingPath(offset);
-    ctx.strokeStyle = "rgba(255, 239, 90, 0.42)";
-    ctx.lineWidth = 13;
+    ctx.strokeStyle = "rgba(255, 239, 90, 0.54)";
+    ctx.lineWidth = 8 + pulse * 1.5;
     ctx.stroke();
 
-    ctx.shadowColor = "#55e9ff";
-    ctx.shadowBlur = 20;
+    ctx.shadowColor = "#ffffff";
+    ctx.shadowBlur = 22 + overload * 8;
     drawRotatingPath(offset);
-    ctx.strokeStyle = "rgba(222, 255, 255, 0.96)";
-    ctx.lineWidth = 4.5 + pulse * 1.2;
+    ctx.strokeStyle = "rgba(244, 255, 255, 1)";
+    ctx.lineWidth = 4.8 + pulse * 1.6;
     ctx.stroke();
   }
 
-  const core = ctx.createRadialGradient(x, y, 3, x, y, 62 + pulse * 20);
-  core.addColorStop(0, "rgba(255, 255, 255, 0.72)");
-  core.addColorStop(0.22, "rgba(255, 239, 90, 0.46)");
-  core.addColorStop(0.58, "rgba(117, 255, 102, 0.22)");
+  const core = ctx.createRadialGradient(x, y, 3, x, y, 78 + pulse * 28);
+  core.addColorStop(0, "rgba(255, 255, 255, 0.92)");
+  core.addColorStop(0.18, "rgba(255, 239, 90, 0.58)");
+  core.addColorStop(0.42, "rgba(255, 42, 255, 0.34)");
+  core.addColorStop(0.68, "rgba(85, 233, 255, 0.22)");
   core.addColorStop(1, "rgba(0, 0, 0, 0)");
   ctx.fillStyle = core;
-  ctx.fillRect(x - 90, y - 90, 180, 180);
+  ctx.fillRect(x - 112, y - 112, 224, 224);
+
+  const tip = bossCannonTip(state.boss);
+  for (let i = 0; i < 24; i += 1) {
+    const seed = i * 12.917 + state.time * 29;
+    const sparkAngle = seed + Math.sin(seed * 0.7) * 0.9;
+    const distance = 12 + (i % 6) * 7 + overload * 18;
+    const sx = tip.x + Math.cos(sparkAngle) * distance;
+    const sy = tip.y + Math.sin(sparkAngle) * distance * 0.72;
+    const radius = 1.5 + (i % 4) * 0.8 + pulse * 1.2;
+    ctx.fillStyle = i % 3 === 0 ? "#fff2a8" : i % 3 === 1 ? "#55e9ff" : "#ff57e3";
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.shadowBlur = 12 + overload * 16;
+    ctx.beginPath();
+    ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -3950,12 +3997,15 @@ function levelProgress() {
 function updateHud() {
   const score = state ? state.score : 0;
   const bossActive = Boolean(state?.boss);
+  const newHighScoreRun = Boolean(state && score > best);
   scoreEl.textContent = String(score);
+  bestEl.textContent = String(Math.max(best, score));
   levelEl.textContent = state?.levelConfig?.label || "1-1";
   renderLives(state?.lives ?? STARTING_LIVES);
   const progress = levelProgress().toFixed(3);
   levelProgressEl.style.setProperty("--progress", progress);
   gameWrap.classList.toggle("boss-level-active", bossActive);
+  gameWrap.classList.toggle("new-high-score-run", newHighScoreRun);
   bossGasMeter.classList.toggle("hidden", !bossActive);
   if (bossActive) {
     bossGasFill.style.setProperty("--boss-gas", progress);
