@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Baked Snake Prototype</title>
-    <link rel="stylesheet" href="./styles.css?v=city-complete-v1">
+    <link rel="stylesheet" href="./styles.css?v=speechbox-v4">
   </head>
   <body>
     <main class="shell">
@@ -81,6 +81,17 @@
                 <strong id="clearStreakValue">x1</strong>
               </div>
             </div>
+            <form class="score-entry hidden" id="scoreEntry">
+              <label for="scoreName">Top 10 Name</label>
+              <div>
+                <input id="scoreName" type="text" maxlength="10" autocomplete="off" spellcheck="false" value="AAA">
+                <button id="scoreSubmit" type="submit">Save</button>
+              </div>
+            </form>
+            <div class="score-board hidden" id="scoreBoard" aria-label="Top 10 high scores">
+              <span>Top 10</span>
+              <ol id="scoreBoardList"></ol>
+            </div>
             <button id="restartButton" type="button">Play Again</button>
             <p id="deathPrompt">Press Space or tap Play Again</p>
           </div>
@@ -132,6 +143,6 @@
       </section>
     </main>
 
-    <script src="./game.js?v=city-complete-v1"></script>
+    <script src="./game.js?v=speechbox-v4"></script>
   </body>
 </html>

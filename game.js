@@ -57,6 +57,10 @@ const deathPromptEl = document.querySelector("#deathPrompt");
 const clearStatsEl = document.querySelector("#clearStats");
 const clearStreakIconEl = document.querySelector("#clearStreakIcon");
 const clearStreakValueEl = document.querySelector("#clearStreakValue");
+const scoreEntryEl = document.querySelector("#scoreEntry");
+const scoreNameInput = document.querySelector("#scoreName");
+const scoreBoardEl = document.querySelector("#scoreBoard");
+const scoreBoardListEl = document.querySelector("#scoreBoardList");
 const restartButton = document.querySelector("#restartButton");
 const cinematicOverlay = document.querySelector("#cinematicOverlay");
 const cinematicImage = document.querySelector("#cinematicImage");
@@ -75,6 +79,7 @@ const soundOffButton = document.querySelector("#soundOffButton");
 
 const WORLD = { w: 1290, h: 600 };
 const STORAGE_KEY = "baked-snake-best";
+const SCOREBOARD_KEY = "baked-snake-top10";
 const SCORE_SCALE = 100;
 const LEVEL_ONE_TARGET = 1000;
 const LEVEL_DURATION = 45;
@@ -167,6 +172,9 @@ const BOSS_EXPLOSION_TIME = 1.65;
 const BOSS_MESSAGE_TIME = 3.2;
 const BOSS_RANDOM_BARK_MIN = 5.8;
 const BOSS_RANDOM_BARK_MAX = 10.5;
+const BOSS_INTRO_TIME = 9.2;
+const BOSS_INTRO_FIRST_LINE_TIME = 4.8;
+const BOSS_RETRY_INTRO_TIME = 3.35;
 const STARTING_LIVES = 3;
 const STAGE_INVULNERABLE_TIME = 3;
 const CINEMATIC_TYPE_MS = 38;
@@ -1169,7 +1177,7 @@ const itemTypes = [
     kind: "risk",
     color: HARM_COLOR,
     sprite: "red1",
-    points: 25,
+    points: 60,
     growth: 82,
     radius: 15,
     ttl: 7.2,
@@ -1184,7 +1192,7 @@ const itemTypes = [
     kind: "risk",
     color: HARM_COLOR,
     sprite: "red2",
-    points: 60,
+    points: 25,
     growth: 122,
     radius: 15,
     ttl: 5.8,
@@ -1269,10 +1277,95 @@ let nextRunLevel = 1;
 let nextRunScore = 0;
 let nextRunLives = STARTING_LIVES;
 let best = Number(localStorage.getItem(STORAGE_KEY) || 0);
+let pendingScoreEntry = null;
 bestEl.textContent = String(best);
 titleBestEl.textContent = String(best);
 deathBestEl.textContent = String(best);
 updateHud();
+
+function loadScoreboard() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SCOREBOARD_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry) => Number.isFinite(entry?.score) && typeof entry.name === "string")
+      .map((entry) => ({
+        name: sanitizeScoreName(entry.name) || "AAA",
+        score: Math.max(0, Math.round(entry.score)),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10);
+  } catch {
+    return [];
+  }
+}
+
+function saveScoreboard(entries) {
+  localStorage.setItem(SCOREBOARD_KEY, JSON.stringify(entries.slice(0, 10)));
+}
+
+function sanitizeScoreName(name) {
+  return String(name || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, "")
+    .trim()
+    .slice(0, 10);
+}
+
+function qualifiesForScoreboard(score) {
+  if (score <= 0) return false;
+  const entries = loadScoreboard();
+  return entries.length < 10 || score > entries[entries.length - 1].score;
+}
+
+function renderScoreboard() {
+  if (!scoreBoardEl || !scoreBoardListEl) return;
+  const entries = loadScoreboard();
+  scoreBoardEl.classList.toggle("hidden", entries.length === 0 && !pendingScoreEntry);
+  scoreBoardListEl.innerHTML = "";
+  entries.forEach((entry, index) => {
+    const row = document.createElement("li");
+    const rank = document.createElement("span");
+    const name = document.createElement("strong");
+    const score = document.createElement("em");
+    rank.textContent = String(index + 1).padStart(2, "0");
+    name.textContent = entry.name;
+    score.textContent = String(entry.score);
+    row.append(rank, name, score);
+    scoreBoardListEl.appendChild(row);
+  });
+}
+
+function showScoreEntry(score) {
+  pendingScoreEntry = { score };
+  scoreEntryEl.classList.remove("hidden");
+  scoreNameInput.value = "AAA";
+  renderScoreboard();
+  window.setTimeout(() => {
+    scoreNameInput.focus({ preventScroll: true });
+    scoreNameInput.select();
+  }, 0);
+}
+
+function hideScoreEntry() {
+  pendingScoreEntry = null;
+  scoreEntryEl.classList.add("hidden");
+}
+
+function submitScoreEntry() {
+  if (!pendingScoreEntry) return;
+  const entry = {
+    name: sanitizeScoreName(scoreNameInput.value) || "AAA",
+    score: pendingScoreEntry.score,
+  };
+  const entries = loadScoreboard();
+  entries.push(entry);
+  entries.sort((a, b) => b.score - a.score);
+  saveScoreboard(entries.slice(0, 10));
+  hideScoreEntry();
+  renderScoreboard();
+  restartButton.focus({ preventScroll: true });
+}
 
 function newState(level = 1, carriedScore = 0, carriedLives = STARTING_LIVES) {
   const levelNumber = clamp(Math.round(level), 1, MAX_LEVEL);
@@ -1323,14 +1416,15 @@ function newState(level = 1, carriedScore = 0, carriedLives = STARTING_LIVES) {
     mouthOpen: 0,
     mouthBiteTimer: 0,
     screenPulse: 0,
-    boss: createBossState(levelConfig),
+    boss: createBossState(levelConfig, carriedLives),
   };
 }
 
-function createBossState(levelConfig) {
+function createBossState(levelConfig, carriedLives = STARTING_LIVES) {
   if (!levelConfig.boss) return null;
   const config = levelConfig.boss;
   const x = (config.minX + config.maxX) * 0.5;
+  const intro = bossIntroConfig(carriedLives);
   return {
     x,
     y: config.y,
@@ -1340,8 +1434,9 @@ function createBossState(levelConfig) {
     facing: -1,
     speed: BOSS_PHASE_ONE_SPEED,
     gas: 1,
-    phase: "roam",
-    phaseTime: 1.4,
+    phase: "intro",
+    phaseTime: intro.duration,
+    introDuration: intro.duration,
     windupDuration: BOSS_WINDUP,
     attackDuration: BOSS_ATTACK_HOLD,
     attackX: x,
@@ -1351,11 +1446,34 @@ function createBossState(levelConfig) {
     crossCrackleStarted: false,
     chargeCutoffDone: false,
     announcedPhase: 1,
-    message: null,
-    messageTime: 0,
+    introFollowupPending: intro.followup.length > 0,
+    message: { kind: "blotch", lines: intro.lines },
+    messageTime: intro.duration,
     barkTimer: nextBossBarkDelay(),
     shots: 0,
     defeated: false,
+  };
+}
+
+function bossIntroConfig(carriedLives) {
+  if (carriedLives === 2) {
+    return {
+      duration: BOSS_RETRY_INTRO_TIME,
+      lines: ["Oh, back for more?!", "Your funeral!"],
+      followup: [],
+    };
+  }
+  if (carriedLives === 1) {
+    return {
+      duration: BOSS_RETRY_INTRO_TIME,
+      lines: ["You can't take a hint can you?!", "Stay down!"],
+      followup: [],
+    };
+  }
+  return {
+    duration: BOSS_INTRO_TIME,
+    lines: ["Time to teach your wiggly little ass to", "respect Blotch's product!"],
+    followup: ["Get ready for the sweet taste of", "the bottom of my boot!"],
   };
 }
 
@@ -1371,7 +1489,7 @@ function queueBossMessage(kind, lines, duration = BOSS_MESSAGE_TIME) {
 }
 
 function maybeTriggerBossBark(boss, dt) {
-  if (!boss || boss.phase === "exploding" || boss.defeated) return;
+  if (!boss || boss.phase === "intro" || boss.phase === "exploding" || boss.defeated) return;
   if (boss.messageTime > 0.15) return;
   boss.barkTimer -= dt;
   if (boss.barkTimer > 0) return;
@@ -1534,6 +1652,7 @@ function finishRun({ cleared = false } = {}) {
   const finalClear = cleared && state.level >= MAX_LEVEL;
   deathKickerEl.textContent = finalClear ? "Snake City Complete" : cleared ? "Level Clear" : canRetryLevel ? "Life Lost" : "Run Cooked";
   deathOverlay.classList.toggle("city-complete", finalClear);
+  hideScoreEntry();
   restartButton.textContent = cinematicPending
     ? "Continue"
     : canRetryLevel
@@ -1549,6 +1668,12 @@ function finishRun({ cleared = false } = {}) {
         ? "Press Space or tap Next Level"
         : "Press Space or tap Play Again";
   renderClearStats(cleared);
+  const runIsOver = !canRetryLevel && !hasNextLevel && !cinematicPending;
+  if (runIsOver && qualifiesForScoreboard(state.score)) {
+    showScoreEntry(state.score);
+  } else {
+    renderScoreboard();
+  }
   if (cleared) {
     playHeroItemSpawnSound();
   } else {
@@ -1556,7 +1681,9 @@ function finishRun({ cleared = false } = {}) {
   }
   briefingOverlay.classList.add("hidden");
   deathOverlay.classList.remove("hidden");
-  restartButton.focus({ preventScroll: true });
+  if (!pendingScoreEntry) {
+    restartButton.focus({ preventScroll: true });
+  }
 }
 
 function showCinematic() {
@@ -1851,6 +1978,23 @@ function updateBoss(dt) {
   if (!boss || state.levelCleared) return;
   boss.messageTime = Math.max(0, boss.messageTime - dt);
   maybeTriggerBossBark(boss, dt);
+
+  if (boss.phase === "intro") {
+    boss.phaseTime -= dt;
+    const elapsed = boss.introDuration - boss.phaseTime;
+    if (boss.introFollowupPending && elapsed >= BOSS_INTRO_FIRST_LINE_TIME) {
+      boss.introFollowupPending = false;
+      queueBossMessage("blotch", ["Get ready for the sweet taste of", "the bottom of my boot!"], boss.introDuration - elapsed);
+    }
+    if (boss.phaseTime <= 0) {
+      boss.phase = "roam";
+      boss.message = null;
+      boss.messageTime = 0;
+      boss.phaseTime = nextBossAttackDelay();
+      boss.targetX = randomBossTarget();
+    }
+    return;
+  }
 
   if (boss.phase === "roam") {
     const dx = boss.targetX - boss.x;
@@ -2666,47 +2810,100 @@ function drawBossExplosion(boss, progress) {
 function drawBossMessage(boss) {
   if (!boss.message || boss.messageTime <= 0) return;
 
-  const lines = boss.message.lines;
   const isWarning = boss.message.kind === "warning";
-  const width = isWarning ? 430 : 210;
-  const lineHeight = 18;
-  const height = 36 + lines.length * lineHeight;
-  const side = boss.x < WORLD.w * 0.58 ? 1 : -1;
-  const x = clamp(boss.x + side * 132, 20, WORLD.w - width - 20);
-  const y = clamp(boss.y - 178, 28, WORLD.h - height - 24);
+  const font = isWarning
+    ? "950 15px 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace"
+    : "950 16px 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.save();
+  ctx.font = font;
+  const maxWidth = isWarning ? 460 : 500;
+  const minWidth = isWarning ? 290 : 280;
+  const lineHeight = isWarning ? 18 : 19;
+  const lines = wrapBossMessageLines(ctx, boss.message.lines, maxWidth - 36);
+  const measuredWidth = Math.max(...lines.map((line) => ctx.measureText(line).width), 0);
+  const width = clamp(Math.ceil(measuredWidth + 36), minWidth, maxWidth);
+  const height = 34 + lines.length * lineHeight;
+  const side = boss.x < WORLD.w * 0.56 ? 1 : -1;
+  const sideOffset = isWarning ? 126 : 154;
+  const preferredX = boss.x + side * sideOffset - width / 2;
+  const x = clamp(preferredX, 20, WORLD.w - width - 20);
+  const y = clamp(boss.y - 132 - height * 0.22, 28, WORLD.h - height - 24);
   const alpha = clamp(boss.messageTime / 0.25, 0, 1);
 
-  ctx.save();
   ctx.globalAlpha = alpha;
   ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = isWarning ? "rgba(35, 2, 12, 0.88)" : "rgba(5, 12, 24, 0.9)";
-  ctx.strokeStyle = isWarning ? "rgba(255, 42, 80, 0.92)" : "rgba(255, 242, 168, 0.92)";
-  ctx.shadowColor = isWarning ? "#ff2a50" : "#fff2a8";
-  ctx.shadowBlur = 16;
+  ctx.fillStyle = isWarning ? "rgba(35, 2, 12, 0.92)" : "rgba(23, 3, 29, 0.93)";
+  ctx.strokeStyle = isWarning ? "rgba(255, 42, 80, 0.96)" : "rgba(255, 57, 205, 0.98)";
+  ctx.shadowColor = isWarning ? "#ff2a50" : "#ff39cd";
+  ctx.shadowBlur = 24;
   ctx.lineWidth = 3;
   roundedRectPath(ctx, x, y, width, height, 8);
   ctx.fill();
   ctx.stroke();
 
-  ctx.beginPath();
-  const tailX = side > 0 ? x + 22 : x + width - 22;
-  ctx.moveTo(tailX, y + height - 3);
-  ctx.lineTo(tailX + side * -28, y + height + 22);
-  ctx.lineTo(tailX + side * 20, y + height - 3);
-  ctx.closePath();
-  ctx.fill();
+  ctx.shadowBlur = 9;
+  ctx.strokeStyle = isWarning ? "rgba(255, 242, 168, 0.7)" : "rgba(255, 213, 248, 0.58)";
+  ctx.lineWidth = 1.5;
+  roundedRectPath(ctx, x + 5, y + 5, width - 10, height - 10, 5);
   ctx.stroke();
 
   ctx.shadowBlur = 8;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.font = "950 16px 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.font = font;
   for (let i = 0; i < lines.length; i += 1) {
     ctx.fillStyle = isWarning && i === 0 ? "#ff405f" : isWarning ? "#fff2a8" : "#fff2a8";
     ctx.shadowColor = ctx.fillStyle;
-    ctx.fillText(lines[i], x + 18, y + 24 + i * lineHeight);
+    ctx.fillText(lines[i], x + 18, y + 23 + i * lineHeight);
   }
   ctx.restore();
+}
+
+function wrapBossMessageLines(context, sourceLines, maxWidth) {
+  const wrapped = [];
+  for (const sourceLine of sourceLines) {
+    const start = wrapped.length;
+    const words = String(sourceLine).split(/\s+/).filter(Boolean);
+    let current = "";
+    for (const word of words) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (current && context.measureText(candidate).width > maxWidth) {
+        wrapped.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) wrapped.push(current);
+    balanceWrappedBossLines(context, wrapped, start, maxWidth);
+  }
+  return wrapped.length ? wrapped : [""];
+}
+
+function balanceWrappedBossLines(context, lines, start, maxWidth) {
+  if (lines.length - start < 2) return;
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = start + 1; i < lines.length; i += 1) {
+      const previousWords = lines[i - 1].split(/\s+/).filter(Boolean);
+      if (previousWords.length < 3) continue;
+
+      const lastWord = previousWords[previousWords.length - 1];
+      const nextCandidate = `${lastWord} ${lines[i]}`;
+      const previousCandidate = previousWords.slice(0, -1).join(" ");
+      if (context.measureText(nextCandidate).width > maxWidth) continue;
+
+      const currentDiff = Math.abs(context.measureText(lines[i - 1]).width - context.measureText(lines[i]).width);
+      const candidateDiff = Math.abs(context.measureText(previousCandidate).width - context.measureText(nextCandidate).width);
+      if (candidateDiff + 18 < currentDiff || context.measureText(lines[i]).width < maxWidth * 0.38) {
+        lines[i - 1] = previousCandidate;
+        lines[i] = nextCandidate;
+        changed = true;
+      }
+    }
+  }
 }
 
 function drawNeonHazardLine(line) {
@@ -4035,6 +4232,23 @@ soundOnButton.addEventListener("click", () => setSoundEnabled(true));
 soundOffButton.addEventListener("click", () => setSoundEnabled(false));
 restartButton.addEventListener("click", advanceFromRecap);
 cinematicContinueButton.addEventListener("click", advanceCinematic);
+scoreEntryEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitScoreEntry();
+});
+scoreNameInput.addEventListener("input", () => {
+  const clean = sanitizeScoreName(scoreNameInput.value);
+  if (scoreNameInput.value !== clean) {
+    scoreNameInput.value = clean;
+  }
+});
+scoreNameInput.addEventListener("keydown", (event) => {
+  event.stopPropagation();
+  if (event.key === "Enter") {
+    event.preventDefault();
+    submitScoreEntry();
+  }
+});
 if (DEBUG_DEATH) {
   window.addEventListener("keydown", (event) => {
     if (event.key.toLowerCase() === "k" && running) {
