@@ -4,7 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Baked Snake Prototype</title>
-    <link rel="stylesheet" href="./styles.css?v=blotch-meltdown-v1">
+    <link rel="preload" as="image" href="./assets/snake-foreground-v3.png?v=precise-overlap-v2">
+    <link rel="preload" as="image" href="./assets/snake-foreground-v3b.png?v=precise-overlap-v2">
+    <link rel="stylesheet" href="./styles.css?v=scoreboard-combo-v1">
   </head>
   <body>
     <main class="shell">
@@ -39,8 +41,12 @@
           </div>
         </div>
 
-        <div class="snake-cutout snake-cutout-normal" aria-hidden="true"></div>
-        <div class="snake-cutout snake-cutout-influenced" aria-hidden="true"></div>
+        <div class="snake-cutout snake-cutout-normal" aria-hidden="true">
+          <img src="./assets/snake-foreground-v3.png?v=precise-overlap-v2" alt="">
+        </div>
+        <div class="snake-cutout snake-cutout-influenced" aria-hidden="true">
+          <img src="./assets/snake-foreground-v3b.png?v=precise-overlap-v2" alt="">
+        </div>
 
         <div class="briefing-overlay hidden" id="briefingOverlay" aria-live="polite">
           <div class="briefing-panel">
@@ -75,10 +81,14 @@
               <strong id="deathBest">0</strong>
             </div>
             <div class="clear-stats hidden" id="clearStats">
-              <span>Best Streak</span>
-              <div>
+              <div class="clear-streak hidden" id="clearStreak">
+                <span>Best Streak</span>
                 <img id="clearStreakIcon" alt="">
                 <strong id="clearStreakValue">x1</strong>
+              </div>
+              <div class="clear-bonus hidden" id="clearBonus">
+                <span id="clearBonusLabel">Perfect Level</span>
+                <strong id="clearBonusValue">+15000</strong>
               </div>
             </div>
             <form class="score-entry hidden" id="scoreEntry">
@@ -143,6 +153,6 @@
       </section>
     </main>
 
-    <script src="./game.js?v=blotch-meltdown-v1"></script>
+    <script src="./game.js?v=scoreboard-combo-v1"></script>
   </body>
 </html>

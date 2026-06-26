@@ -55,8 +55,12 @@ const deathBestEl = document.querySelector("#deathBest");
 const deathKickerEl = document.querySelector("#deathKicker");
 const deathPromptEl = document.querySelector("#deathPrompt");
 const clearStatsEl = document.querySelector("#clearStats");
+const clearStreakEl = document.querySelector("#clearStreak");
 const clearStreakIconEl = document.querySelector("#clearStreakIcon");
 const clearStreakValueEl = document.querySelector("#clearStreakValue");
+const clearBonusEl = document.querySelector("#clearBonus");
+const clearBonusLabelEl = document.querySelector("#clearBonusLabel");
+const clearBonusValueEl = document.querySelector("#clearBonusValue");
 const scoreEntryEl = document.querySelector("#scoreEntry");
 const scoreNameInput = document.querySelector("#scoreName");
 const scoreBoardEl = document.querySelector("#scoreBoard");
@@ -282,8 +286,11 @@ const LEVELS = {
 };
 const SPAWN_DELAY = { min: 0.85, max: 1.75 };
 const SNAP_MODE_THRESHOLD = 0.08;
-const SNAP_TURN_MIN = 20 * Math.PI / 180;
-const SNAP_TURN_MAX = 90 * Math.PI / 180;
+const SNAP_TURN_MIN = 15 * Math.PI / 180;
+const SNAP_TURN_MAX = 58 * Math.PI / 180;
+const RISK_COMBO_WINDOW = 3.2;
+const PERFECT_LEVEL_BONUS = 15000;
+const PERFECT_BLOTCH_BONUS = 50000;
 const EFFECT_DECAY = {
   wobble: 0.075,
   trip: 0.065,
@@ -1273,7 +1280,6 @@ let cinematicTypeTimer = undefined;
 let cinematicSceneIndex = 0;
 let cinematicTypedChars = 0;
 let cinematicSceneComplete = false;
-let cinematicMorphing = false;
 let screenWipeActive = false;
 let nextRunLevel = 1;
 let nextRunScore = 0;
@@ -1320,10 +1326,11 @@ function qualifiesForScoreboard(score) {
   return entries.length < 10 || score > entries[entries.length - 1].score;
 }
 
-function renderScoreboard() {
+function renderScoreboard(show = false) {
   if (!scoreBoardEl || !scoreBoardListEl) return;
   const entries = loadScoreboard();
-  scoreBoardEl.classList.toggle("hidden", entries.length === 0 && !pendingScoreEntry);
+  const shouldShow = Boolean(show || pendingScoreEntry);
+  scoreBoardEl.classList.toggle("hidden", !shouldShow || (entries.length === 0 && !pendingScoreEntry));
   scoreBoardListEl.innerHTML = "";
   entries.forEach((entry, index) => {
     const row = document.createElement("li");
@@ -1342,7 +1349,7 @@ function showScoreEntry(score) {
   pendingScoreEntry = { score };
   scoreEntryEl.classList.remove("hidden");
   scoreNameInput.value = "AAA";
-  renderScoreboard();
+  renderScoreboard(true);
   window.setTimeout(() => {
     scoreNameInput.focus({ preventScroll: true });
     scoreNameInput.select();
@@ -1365,7 +1372,7 @@ function submitScoreEntry() {
   entries.sort((a, b) => b.score - a.score);
   saveScoreboard(entries.slice(0, 10));
   hideScoreEntry();
-  renderScoreboard();
+  renderScoreboard(true);
   restartButton.focus({ preventScroll: true });
 }
 
@@ -1379,6 +1386,7 @@ function newState(level = 1, carriedScore = 0, carriedLives = STARTING_LIVES) {
     levelConfig,
     score: Math.max(0, carriedScore),
     lives: clamp(Math.round(carriedLives), 1, STARTING_LIVES),
+    levelStartLives: clamp(Math.round(carriedLives), 1, STARTING_LIVES),
     baseSpeed: 190,
     speedBoost: 0,
     angle: levelConfig.start.angle,
@@ -1403,6 +1411,7 @@ function newState(level = 1, carriedScore = 0, carriedLives = STARTING_LIVES) {
     combo: {
       itemId: null,
       count: 0,
+      lastAt: -Infinity,
     },
     bestCombo: {
       count: 1,
@@ -1418,6 +1427,7 @@ function newState(level = 1, carriedScore = 0, carriedLives = STARTING_LIVES) {
     mouthOpen: 0,
     mouthBiteTimer: 0,
     screenPulse: 0,
+    clearBonus: 0,
     boss: createBossState(levelConfig, carriedLives),
   };
 }
@@ -1608,7 +1618,6 @@ function startGame(level = nextRunLevel, carriedScore = nextRunScore, carriedLiv
   screenWipe.classList.add("hidden");
   screenWipe.classList.remove("enter", "exit");
   screenWipeActive = false;
-  cinematicMorphing = false;
   briefingOverlay.classList.toggle("hidden", !shouldBrief);
   draw();
   if (shouldBrief) {
@@ -1634,6 +1643,11 @@ function finishRun({ cleared = false } = {}) {
   briefingPending = false;
   state.levelCleared = cleared;
   state.alive = false;
+  state.clearBonus = 0;
+  if (cleared && state.lives === state.levelStartLives) {
+    state.clearBonus = state.level === BOSS_LEVEL ? PERFECT_BLOTCH_BONUS : PERFECT_LEVEL_BONUS;
+    state.score += state.clearBonus;
+  }
   const remainingLives = cleared ? state.lives : Math.max(0, state.lives - 1);
   state.lives = remainingLives;
   const canRetryLevel = !cleared && remainingLives > 0;
@@ -1675,7 +1689,7 @@ function finishRun({ cleared = false } = {}) {
   if (runIsOver && qualifiesForScoreboard(state.score)) {
     showScoreEntry(state.score);
   } else {
-    renderScoreboard();
+    renderScoreboard(runIsOver);
   }
   if (cleared) {
     playHeroItemSpawnSound();
@@ -1740,8 +1754,6 @@ function finishCinematicLine() {
 
 function startCinematicScene(sceneIndex) {
   stopCinematicTypewriter();
-  cinematicOverlay.classList.remove("morphing");
-  cinematicMorphing = false;
   cinematicSceneIndex = sceneIndex;
   cinematicSceneComplete = false;
   cinematicTypedChars = 0;
@@ -1759,34 +1771,7 @@ function startCinematicScene(sceneIndex) {
 }
 
 function morphToCinematicScene(sceneIndex) {
-  if (cinematicMorphing) return;
-  cinematicMorphing = true;
-  stopCinematicTypewriter();
-  stopArcadeTextSound();
-  cinematicLine.textContent = "";
-  cinematicContinueButton.classList.remove("ready");
-  cinematicOverlay.classList.remove("morphing");
-  cinematicOverlay.offsetHeight;
-  cinematicOverlay.classList.add("morphing");
-
-  window.setTimeout(() => {
-    const scene = CINEMATIC_SCENES[sceneIndex];
-    cinematicSceneIndex = sceneIndex;
-    cinematicSceneComplete = false;
-    cinematicTypedChars = 0;
-    cinematicImage.src = scene.image;
-    cinematicImage.style.setProperty("--cinematic-zoom", String(scene.framing?.zoom || 1));
-    cinematicImage.style.setProperty("--cinematic-x", scene.framing?.x || "50%");
-    cinematicImage.style.setProperty("--cinematic-y", scene.framing?.y || "50%");
-    cinematicLine.dataset.text = scene.text;
-  }, 80);
-
-  window.setTimeout(() => {
-    cinematicOverlay.classList.remove("morphing");
-    cinematicMorphing = false;
-    startArcadeTextSound();
-    typeNextCinematicCharacter();
-  }, 190);
+  startCinematicScene(sceneIndex);
 }
 
 function typeNextCinematicCharacter() {
@@ -1850,7 +1835,7 @@ function runScreenWipe(swapScene) {
 }
 
 function advanceCinematic() {
-  if (screenWipeActive || cinematicMorphing) return;
+  if (screenWipeActive) return;
   if (cinematicSceneComplete && cinematicSceneIndex < CINEMATIC_SCENES.length - 1) {
     primeArcadeTextSound();
     morphToCinematicScene(cinematicSceneIndex + 1);
@@ -1883,19 +1868,36 @@ function levelComplete() {
 
 function renderClearStats(cleared) {
   const bestCombo = state.bestCombo;
-  if (!cleared || !bestCombo.itemId || bestCombo.count < 2) {
+  const showCombo = Boolean(cleared && bestCombo.itemId && bestCombo.count >= 2);
+  const showBonus = Boolean(cleared && state.clearBonus > 0);
+  if (!showCombo && !showBonus) {
     clearStatsEl.classList.add("hidden");
+    clearStreakEl.classList.add("hidden");
+    clearBonusEl.classList.add("hidden");
     clearStreakIconEl.removeAttribute("src");
     clearStreakValueEl.textContent = "x1";
     return;
   }
 
-  const comboType = itemTypes.find((type) => type.id === bestCombo.itemId);
-  const spriteSrc = itemSpriteSrcs[comboType?.sprite] || "";
   clearStatsEl.classList.remove("hidden");
-  clearStreakIconEl.src = spriteSrc;
-  clearStreakIconEl.alt = comboType?.name || "Combo item";
-  clearStreakValueEl.textContent = `x${bestCombo.count}`;
+  clearStreakEl.classList.toggle("hidden", !showCombo);
+  clearBonusEl.classList.toggle("hidden", !showBonus);
+
+  if (showCombo) {
+    const comboType = itemTypes.find((type) => type.id === bestCombo.itemId);
+    const spriteSrc = itemSpriteSrcs[comboType?.sprite] || "";
+    clearStreakIconEl.src = spriteSrc;
+    clearStreakIconEl.alt = comboType?.name || "Combo item";
+    clearStreakValueEl.textContent = `x${bestCombo.count}`;
+  } else {
+    clearStreakIconEl.removeAttribute("src");
+    clearStreakValueEl.textContent = "x1";
+  }
+
+  if (showBonus) {
+    clearBonusLabelEl.textContent = "NO DEATHS";
+    clearBonusValueEl.textContent = `+${state.clearBonus}`;
+  }
 }
 
 function loop(now) {
@@ -3711,21 +3713,25 @@ function comboForItem(type) {
   if (type.kind !== "risk") {
     state.combo.itemId = null;
     state.combo.count = 0;
+    state.combo.lastAt = -Infinity;
     return 1;
   }
 
   if (!isUnderMatchingInfluence(type)) {
     state.combo.itemId = type.id;
     state.combo.count = 1;
+    state.combo.lastAt = state.time;
     return 1;
   }
 
-  if (state.combo.itemId === type.id) {
+  const withinWindow = state.time - state.combo.lastAt <= RISK_COMBO_WINDOW;
+  if (state.combo.itemId === type.id && withinWindow) {
     state.combo.count = Math.min(state.combo.count + 1, 5);
   } else {
     state.combo.itemId = type.id;
     state.combo.count = 1;
   }
+  state.combo.lastAt = state.time;
 
   if (state.combo.count > state.bestCombo.count) {
     state.bestCombo.count = state.combo.count;
