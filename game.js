@@ -160,6 +160,11 @@ const BOSS_PHASE_THREE_GAS = 1 / 3;
 const BOSS_PHASE_ONE_SPEED = 118;
 const BOSS_PHASE_TWO_SPEED = 218;
 const BOSS_PHASE_THREE_SPEED = 330;
+const BOSS_BURST_MULTIPLIER = 1.72;
+const BOSS_BURST_MIN = 0.32;
+const BOSS_BURST_MAX = 0.68;
+const BOSS_BURST_COOLDOWN_MIN = 1.25;
+const BOSS_BURST_COOLDOWN_MAX = 2.4;
 const BOSS_PHASE_TWO_WINDUP = 0.68;
 const BOSS_PHASE_THREE_WINDUP = 0.48;
 const BOSS_SHOT_DAMAGE = 0.085;
@@ -1445,6 +1450,9 @@ function createBossState(levelConfig, carriedLives = STARTING_LIVES) {
     targetX: randomBossTarget(config),
     facing: -1,
     speed: BOSS_PHASE_ONE_SPEED,
+    burstTime: 0,
+    burstDuration: 0,
+    burstCooldown: nextBossBurstCooldown(),
     gas: 1,
     phase: "intro",
     phaseTime: intro.duration,
@@ -1462,6 +1470,7 @@ function createBossState(levelConfig, carriedLives = STARTING_LIVES) {
     meltdownLineShown: false,
     message: { kind: "blotch", lines: intro.lines },
     messageTime: intro.duration,
+    messageQueue: [],
     barkTimer: nextBossBarkDelay(),
     shots: 0,
     defeated: false,
@@ -1497,12 +1506,31 @@ function nextBossBarkDelay() {
 function queueBossMessage(kind, lines, duration = BOSS_MESSAGE_TIME) {
   const boss = state?.boss;
   if (!boss) return;
+  boss.messageQueue = [];
   boss.message = { kind, lines };
   boss.messageTime = duration;
 }
 
+function queueBossMessageSequence(messages) {
+  const boss = state?.boss;
+  if (!boss || !messages.length) return;
+  const [first, ...rest] = messages;
+  boss.messageQueue = rest;
+  boss.message = { kind: first.kind, lines: first.lines };
+  boss.messageTime = first.duration ?? BOSS_MESSAGE_TIME;
+}
+
+function updateBossMessageQueue(boss) {
+  if (boss.messageTime > 0 || !boss.messageQueue?.length) return;
+
+  const next = boss.messageQueue.shift();
+  boss.message = { kind: next.kind, lines: next.lines };
+  boss.messageTime = next.duration ?? BOSS_MESSAGE_TIME;
+}
+
 function maybeTriggerBossBark(boss, dt) {
   if (!boss || boss.phase === "intro" || boss.phase === "exploding" || boss.defeated) return;
+  if (boss.messageQueue?.length) return;
   if (boss.messageTime > 0.15) return;
   boss.barkTimer -= dt;
   if (boss.barkTimer > 0) return;
@@ -1542,8 +1570,24 @@ function bossIsPhaseThree(boss = state?.boss) {
 }
 
 function bossMoveSpeed(boss = state.boss) {
-  if (bossIsPhaseThree(boss)) return BOSS_PHASE_THREE_SPEED;
-  return bossIsPhaseTwo(boss) ? BOSS_PHASE_TWO_SPEED : BOSS_PHASE_ONE_SPEED;
+  const baseSpeed = bossIsPhaseThree(boss)
+    ? BOSS_PHASE_THREE_SPEED
+    : bossIsPhaseTwo(boss)
+      ? BOSS_PHASE_TWO_SPEED
+      : BOSS_PHASE_ONE_SPEED;
+  if (!boss?.burstTime || !boss.burstDuration) return baseSpeed;
+
+  const burstProgress = clamp(1 - boss.burstTime / boss.burstDuration, 0, 1);
+  const burstCurve = Math.sin(burstProgress * Math.PI);
+  return baseSpeed * (1 + (BOSS_BURST_MULTIPLIER - 1) * burstCurve);
+}
+
+function nextBossBurstDuration() {
+  return BOSS_BURST_MIN + Math.random() * (BOSS_BURST_MAX - BOSS_BURST_MIN);
+}
+
+function nextBossBurstCooldown() {
+  return BOSS_BURST_COOLDOWN_MIN + Math.random() * (BOSS_BURST_COOLDOWN_MAX - BOSS_BURST_COOLDOWN_MIN);
 }
 
 function bossWindupDuration(boss = state.boss) {
@@ -1595,7 +1639,7 @@ function bossCannonTip(boss) {
   };
 }
 
-function startGame(level = nextRunLevel, carriedScore = nextRunScore, carriedLives = nextRunLives) {
+function startGame(level = nextRunLevel, carriedScore = nextRunScore, carriedLives = nextRunLives, options = {}) {
   stopBlotchBeamCrackleSounds();
   state = newState(level, carriedScore, carriedLives);
   nextRunLevel = state.level;
@@ -1615,9 +1659,11 @@ function startGame(level = nextRunLevel, carriedScore = nextRunScore, carriedLiv
   overlay.classList.add("hidden");
   deathOverlay.classList.add("hidden");
   cinematicOverlay.classList.add("hidden");
-  screenWipe.classList.add("hidden");
-  screenWipe.classList.remove("enter", "exit");
-  screenWipeActive = false;
+  if (!options.preserveScreenWipe) {
+    screenWipe.classList.add("hidden");
+    screenWipe.classList.remove("enter", "exit");
+    screenWipeActive = false;
+  }
   briefingOverlay.classList.toggle("hidden", !shouldBrief);
   draw();
   if (shouldBrief) {
@@ -1727,7 +1773,7 @@ function closeCinematic() {
   drawStartScreen();
   if (shouldStartPostCinematicLevel) {
     overlay.classList.add("hidden");
-    startGame(BOSS_LEVEL, postCinematicScore, nextRunLives);
+    startGame(BOSS_LEVEL, postCinematicScore, nextRunLives, { preserveScreenWipe: true });
   } else {
     nextRunLevel = 1;
     nextRunScore = 0;
@@ -1982,6 +2028,7 @@ function updateBoss(dt) {
   const boss = state.boss;
   if (!boss || state.levelCleared) return;
   boss.messageTime = Math.max(0, boss.messageTime - dt);
+  updateBossMessageQueue(boss);
   maybeTriggerBossBark(boss, dt);
 
   if (boss.phase === "intro") {
@@ -2003,6 +2050,13 @@ function updateBoss(dt) {
 
   if (boss.phase === "roam") {
     const dx = boss.targetX - boss.x;
+    boss.burstCooldown = Math.max(0, boss.burstCooldown - dt);
+    boss.burstTime = Math.max(0, boss.burstTime - dt);
+    if (boss.burstCooldown <= 0 && boss.burstTime <= 0 && Math.abs(dx) > 70) {
+      boss.burstDuration = nextBossBurstDuration();
+      boss.burstTime = boss.burstDuration;
+      boss.burstCooldown = nextBossBurstCooldown();
+    }
     boss.speed = bossMoveSpeed(boss);
     if (Math.abs(dx) > 2) {
       boss.facing = dx > 0 ? 1 : -1;
@@ -2052,14 +2106,18 @@ function updateBoss(dt) {
       boss.defeated = boss.gas <= 0;
       if (boss.announcedPhase < 2 && bossIsPhaseTwo(boss)) {
         boss.announcedPhase = 2;
-        queueBossMessage("blotch", ["I'll mess you up!"]);
+        queueBossMessageSequence([
+          { kind: "blotch", lines: ["Ok then, let's turn up the heat!"], duration: 2.7 },
+          { kind: "warning", lines: ["Caution!", "Increased risk of overheating!"], duration: 3.05 },
+          { kind: "blotch", lines: ["Yeah, yeah, whatever."], duration: 2.25 },
+        ]);
       }
       if (boss.announcedPhase < 3 && bossIsPhaseThree(boss)) {
         boss.announcedPhase = 3;
-        queueBossMessage("warning", [
-          "Warning! Overheating possible.",
-          "Shut up, stupid machine! Override!",
-        ], 4.4);
+        queueBossMessageSequence([
+          { kind: "warning", lines: ["Warning!", "Overheating possible."], duration: 2.75 },
+          { kind: "blotch", lines: ["Shut up, stupid machine!", "Override!"], duration: 2.95 },
+        ]);
       }
       state.screenPulse = Math.max(state.screenPulse, 0.8);
       playBlotchFireSound();
@@ -2881,9 +2939,9 @@ function drawBossMessage(boss) {
 
   ctx.globalAlpha = alpha;
   ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = isWarning ? "rgba(35, 2, 12, 0.92)" : "rgba(23, 3, 29, 0.93)";
-  ctx.strokeStyle = isWarning ? "rgba(255, 42, 80, 0.96)" : "rgba(255, 57, 205, 0.98)";
-  ctx.shadowColor = isWarning ? "#ff2a50" : "#ff39cd";
+  ctx.fillStyle = isWarning ? "rgba(8, 4, 18, 0.94)" : "rgba(23, 3, 29, 0.93)";
+  ctx.strokeStyle = isWarning ? "rgba(255, 38, 72, 0.98)" : "rgba(255, 57, 205, 0.98)";
+  ctx.shadowColor = isWarning ? "#ff2648" : "#ff39cd";
   ctx.shadowBlur = 24;
   ctx.lineWidth = 3;
   roundedRectPath(ctx, x, y, width, height, 8);
@@ -2891,7 +2949,7 @@ function drawBossMessage(boss) {
   ctx.stroke();
 
   ctx.shadowBlur = 9;
-  ctx.strokeStyle = isWarning ? "rgba(255, 242, 168, 0.7)" : "rgba(255, 213, 248, 0.58)";
+  ctx.strokeStyle = isWarning ? "rgba(85, 233, 255, 0.74)" : "rgba(255, 213, 248, 0.58)";
   ctx.lineWidth = 1.5;
   roundedRectPath(ctx, x + 5, y + 5, width - 10, height - 10, 5);
   ctx.stroke();
@@ -2901,7 +2959,7 @@ function drawBossMessage(boss) {
   ctx.textBaseline = "middle";
   ctx.font = font;
   for (let i = 0; i < lines.length; i += 1) {
-    ctx.fillStyle = isWarning && i === 0 ? "#ff405f" : isWarning ? "#fff2a8" : "#fff2a8";
+    ctx.fillStyle = isWarning ? (i === 0 ? "#ff3158" : "#55e9ff") : "#fff2a8";
     ctx.shadowColor = ctx.fillStyle;
     ctx.fillText(lines[i], x + 18, y + 23 + i * lineHeight);
   }
@@ -3996,13 +4054,15 @@ function unscaledScore() {
 
 function levelProgress() {
   if (!state) return 0;
-  if (state.boss) return clamp(state.boss.gas, 0, 1);
+  if (state.boss) return clamp(1 - state.boss.gas, 0, 1);
   return clamp(state.levelTime / LEVEL_DURATION, 0, 1);
 }
 
 function updateHud() {
   const score = state ? state.score : 0;
   const bossActive = Boolean(state?.boss);
+  const bossPhaseTwo = Boolean(state?.boss && bossIsPhaseTwo(state.boss));
+  const bossPhaseThree = Boolean(state?.boss && bossIsPhaseThree(state.boss));
   const newHighScoreRun = Boolean(state && score > best);
   scoreEl.textContent = String(score);
   bestEl.textContent = String(Math.max(best, score));
@@ -4011,10 +4071,12 @@ function updateHud() {
   const progress = levelProgress().toFixed(3);
   levelProgressEl.style.setProperty("--progress", progress);
   gameWrap.classList.toggle("boss-level-active", bossActive);
+  gameWrap.classList.toggle("boss-heat-phase-2", bossPhaseTwo && !bossPhaseThree);
+  gameWrap.classList.toggle("boss-heat-phase-3", bossPhaseThree);
   gameWrap.classList.toggle("new-high-score-run", newHighScoreRun);
   bossGasMeter.classList.toggle("hidden", !bossActive);
   if (bossActive) {
-    bossGasFill.style.setProperty("--boss-gas", progress);
+    bossGasFill.style.setProperty("--boss-heat", progress);
   }
 }
 
