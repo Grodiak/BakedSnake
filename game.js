@@ -441,8 +441,6 @@ let soundEnabled = true;
 let audioContext = null;
 let musicFilter = null;
 let musicAudioSource = null;
-let pickupSoundBuffer = null;
-let pickupSoundLoading = null;
 let redXShoutBuffer = null;
 let redXShoutLoading = null;
 let blueXShoutBuffer = null;
@@ -646,7 +644,6 @@ function startMusic() {
   if (audioContext?.state === "suspended") {
     audioContext.resume();
   }
-  loadPickupSoundBuffer();
   loadRedXShout();
   loadBlueXShout();
 
@@ -727,7 +724,15 @@ function playSoundFromPool(sounds, index, volume, playbackRate = 1) {
   sound.mozPreservesPitch = false;
   sound.webkitPreservesPitch = false;
   sound.currentTime = 0;
-  sound.play().catch(() => {});
+  sound.play().catch(() => {
+    const fallback = sound.cloneNode(true);
+    fallback.volume = levelSfxVolume(volume);
+    fallback.playbackRate = playbackRate;
+    fallback.preservesPitch = false;
+    fallback.mozPreservesPitch = false;
+    fallback.webkitPreservesPitch = false;
+    fallback.play().catch(() => {});
+  });
   return (index + 1) % sounds.length;
 }
 
@@ -769,50 +774,12 @@ function primeArcadeTextSound() {
   });
 }
 
-function loadPickupSoundBuffer() {
-  if (pickupSoundBuffer || pickupSoundLoading) return pickupSoundLoading;
-  const context = getAudioContext();
-  if (!context || !window.fetch) return Promise.resolve(null);
-
-  pickupSoundLoading = fetch(PICKUP_SOUND_SRC)
-    .then((response) => response.arrayBuffer())
-    .then((data) => context.decodeAudioData(data))
-    .then((buffer) => {
-      pickupSoundBuffer = buffer;
-      return buffer;
-    })
-    .catch(() => null);
-
-  return pickupSoundLoading;
-}
-
-function playBufferedPickupSound(volume, playbackRate) {
-  const context = getAudioContext();
-  if (!context || !pickupSoundBuffer) return false;
-
-  if (context.state === "suspended") {
-    context.resume().catch(() => {});
-  }
-
-  const source = context.createBufferSource();
-  const gain = context.createGain();
-  source.buffer = pickupSoundBuffer;
-  source.playbackRate.value = playbackRate;
-  gain.gain.value = levelSfxVolume(volume);
-  source.connect(gain);
-  gain.connect(context.destination);
-  source.start();
-  return true;
-}
-
 function playGatherSound(streak = 1) {
   if (!soundEnabled) return;
 
   const playbackRate = 1 + clamp(streak - 1, 0, 5) * 0.13;
-  loadPickupSoundBuffer();
   window.setTimeout(() => {
     if (!soundEnabled) return;
-    if (playBufferedPickupSound(PICKUP_SOUND_VOLUME, playbackRate)) return;
     pickupSoundIndex = playSoundFromPool(pickupSounds, pickupSoundIndex, PICKUP_SOUND_VOLUME, playbackRate);
   }, PICKUP_SOUND_DELAY);
 }
@@ -1018,23 +985,35 @@ function playBlueXShout() {
 }
 
 function ensureMusicEffects() {
-  if (musicFilter || (!window.AudioContext && !window.webkitAudioContext)) return;
+  if (musicFilter || musicAudioSource || (!window.AudioContext && !window.webkitAudioContext)) return;
 
   audioContext = getAudioContext();
   if (!audioContext) return;
-  musicAudioSource = audioContext.createMediaElementSource(music);
-  musicFilter = audioContext.createBiquadFilter();
-  musicFilter.type = "lowpass";
-  musicFilter.frequency.value = MUSIC_NORMAL_CUTOFF;
-  musicFilter.Q.value = 0.2;
-  musicAudioSource.connect(musicFilter);
-  musicFilter.connect(audioContext.destination);
+  try {
+    musicAudioSource = audioContext.createMediaElementSource(music);
+    musicFilter = audioContext.createBiquadFilter();
+    musicFilter.type = "lowpass";
+    musicFilter.frequency.value = MUSIC_NORMAL_CUTOFF;
+    musicFilter.Q.value = 0.2;
+    musicAudioSource.connect(musicFilter);
+    musicFilter.connect(audioContext.destination);
+  } catch {
+    musicFilter = null;
+  }
 }
 
 function updateSlowMoAudio(slowMoFocus) {
   const targetRate = slowMoFocus > 0 ? MUSIC_SLOWMO_RATE : MUSIC_NORMAL_RATE;
-  music.playbackRate += (targetRate - music.playbackRate) * 0.18;
+  const nextRate = music.playbackRate + (targetRate - music.playbackRate) * 0.18;
+  try {
+    music.playbackRate = clamp(nextRate, MUSIC_SLOWMO_RATE, MUSIC_NORMAL_RATE);
+  } catch {
+    music.defaultPlaybackRate = targetRate;
+  }
 
+  if (slowMoFocus > 0 && !musicFilter) {
+    ensureMusicEffects();
+  }
   if (!musicFilter || !audioContext) return;
 
   const cutoff = MUSIC_NORMAL_CUTOFF + (MUSIC_SLOWMO_CUTOFF - MUSIC_NORMAL_CUTOFF) * slowMoFocus;

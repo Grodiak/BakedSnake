@@ -727,7 +727,8 @@ canvas {
     0 0 11px rgba(112, 255, 105, 0.86),
     0 0 20px rgba(255, 242, 168, 0.52),
     0 0 28px rgba(240, 160, 255, 0.42);
-  transition: transform 160ms ease-out;
+  transition: none;
+  will-change: transform;
 }
 
 .boss-level-active .level-progress {
